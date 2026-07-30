@@ -152,18 +152,20 @@ chart_col1, chart_col2 = st.columns(2)
 
 # Profit over time
 with chart_col1:
-    st.subheader("Profit Over Time")
-    daily = (
-        merged_df.groupby("order_date")
-        .agg({"revenue": "sum", "total_cost": "sum", "profit": "sum"})
+    st.subheader("Profit Over Time (Weekly)")
+    weekly = merged_df.copy()
+    weekly["week"] = weekly["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+    weekly = (
+        weekly.groupby("week")
+        .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum"})
         .reset_index()
     )
     fig = px.line(
-        daily,
-        x="order_date",
-        y=["revenue", "total_cost", "profit"],
-        labels={"value": "NOK", "order_date": "Date", "variable": ""},
-        color_discrete_map={"revenue": "#2ecc71", "total_cost": "#e74c3c", "profit": "#3498db"},
+        weekly,
+        x="week",
+        y=["revenue_excl_mva", "total_cost", "profit"],
+        labels={"value": "NOK", "week": "Week", "variable": ""},
+        color_discrete_map={"revenue_excl_mva": "#2ecc71", "total_cost": "#e74c3c", "profit": "#3498db"},
     )
     fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=-0.2))
     st.plotly_chart(fig, use_container_width=True)
