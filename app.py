@@ -33,11 +33,16 @@ def load_data():
     # Overhead costs
     overhead = get_overhead_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
 
+    # MVA (VAT) adjustment: Shopify revenue includes 25% MVA, costs are excl. MVA
+    # Revenue excl. MVA = revenue / 1.25
+    items_df["revenue_excl_mva"] = items_df["revenue"] / 1.25
+    items_df["mva_collected"] = items_df["revenue"] - items_df["revenue_excl_mva"]
+
     # Join on product_key
     merged = items_df.merge(costs_df[["product_key", "cost_price"]], on="product_key", how="left")
     merged["total_cost"] = merged["cost_price"] * merged["quantity"]
-    merged["profit"] = merged["revenue"] - merged["total_cost"]
-    merged["margin_pct"] = (merged["profit"] / merged["revenue"] * 100).round(1)
+    merged["profit"] = merged["revenue_excl_mva"] - merged["total_cost"]
+    merged["margin_pct"] = (merged["profit"] / merged["revenue_excl_mva"] * 100).round(1)
 
     return merged, items_df, costs_df, overhead
 
@@ -48,7 +53,9 @@ with st.spinner("Loading orders and cost data..."):
 
 # --- Calculate totals ---
 num_orders = merged_df["order_number"].nunique()
-total_revenue = merged_df["revenue"].sum()
+total_revenue_incl_mva = merged_df["revenue"].sum()
+total_revenue = merged_df["revenue_excl_mva"].sum()
+total_mva = merged_df["mva_collected"].sum()
 total_cogs = merged_df["total_cost"].sum()
 gross_profit = total_revenue - total_cogs
 
@@ -66,13 +73,14 @@ st.title("📊 Profit Dashboard")
 st.caption(f"{len(merged_df)} line items across {num_orders} orders")
 
 # --- KPI cards ---
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-col1.metric("Revenue", f"{total_revenue:,.0f} NOK")
-col2.metric("COGS", f"{total_cogs:,.0f} NOK")
-col3.metric("Gross Profit", f"{gross_profit:,.0f} NOK")
-col4.metric("Net Profit", f"{net_profit:,.0f} NOK")
-col5.metric("Net Margin", f"{net_margin:.1f}%")
+col1.metric("Revenue (incl. MVA)", f"{total_revenue_incl_mva:,.0f} NOK")
+col2.metric("MVA (25%)", f"{total_mva:,.0f} NOK")
+col3.metric("Revenue (excl. MVA)", f"{total_revenue:,.0f} NOK")
+col4.metric("COGS", f"{total_cogs:,.0f} NOK")
+col5.metric("Net Profit", f"{net_profit:,.0f} NOK")
+col6.metric("Net Margin", f"{net_margin:.1f}%")
 
 # --- Cost breakdown ---
 st.divider()
@@ -94,7 +102,9 @@ with breakdown_col1:
 with breakdown_col2:
     st.markdown("**Summary**")
     summary_data = [
-        {"Item": "Total Revenue", "Amount (NOK)": total_revenue},
+        {"Item": "Revenue (incl. MVA)", "Amount (NOK)": total_revenue_incl_mva},
+        {"Item": "MVA owed to government (25%)", "Amount (NOK)": -total_mva},
+        {"Item": "Revenue (excl. MVA)", "Amount (NOK)": total_revenue},
         {"Item": "Product Costs (COGS)", "Amount (NOK)": -total_cogs},
         {"Item": "Gross Profit", "Amount (NOK)": gross_profit},
         {"Item": f"Fixed Overhead ({months_covered:.1f} months)", "Amount (NOK)": -total_fixed_overhead},
@@ -111,9 +121,9 @@ st.divider()
 st.subheader("Profit Waterfall")
 
 waterfall_fig = go.Figure(go.Waterfall(
-    x=["Revenue", "COGS", "Gross Profit", "Fixed Overhead", "Net Profit"],
-    y=[total_revenue, -total_cogs, 0, -total_fixed_overhead, 0],
-    measure=["absolute", "relative", "total", "relative", "total"],
+    x=["Revenue (incl. MVA)", "MVA (25%)", "Revenue (excl. MVA)", "COGS", "Gross Profit", "Fixed Overhead", "Net Profit"],
+    y=[total_revenue_incl_mva, -total_mva, 0, -total_cogs, 0, -total_fixed_overhead, 0],
+    measure=["absolute", "relative", "total", "relative", "total", "relative", "total"],
     connector={"line": {"color": "rgb(63, 63, 63)"}},
     increasing={"marker": {"color": "#2ecc71"}},
     decreasing={"marker": {"color": "#e74c3c"}},
@@ -227,7 +237,7 @@ st.dataframe(
 with st.expander("📋 Detailed Line Items"):
     display_cols = [
         "order_number", "order_date", "product_key", "quantity",
-        "unit_price", "revenue", "cost_price", "total_cost", "profit", "margin_pct",
+        "unit_price", "revenue", "revenue_excl_mva", "cost_price", "total_cost", "profit", "margin_pct",
     ]
     st.dataframe(
         merged_df[display_cols].sort_values("order_date", ascending=False),
