@@ -116,22 +116,6 @@ with breakdown_col2:
         hide_index=True,
     )
 
-# --- Profit waterfall ---
-st.divider()
-st.subheader("Profit Waterfall")
-
-waterfall_fig = go.Figure(go.Waterfall(
-    x=["Revenue (incl. MVA)", "MVA (25%)", "Revenue (excl. MVA)", "COGS", "Gross Profit", "Fixed Overhead", "Net Profit"],
-    y=[total_revenue_incl_mva, -total_mva, 0, -total_cogs, 0, -total_fixed_overhead, 0],
-    measure=["absolute", "relative", "total", "relative", "total", "relative", "total"],
-    connector={"line": {"color": "rgb(63, 63, 63)"}},
-    increasing={"marker": {"color": "#2ecc71"}},
-    decreasing={"marker": {"color": "#e74c3c"}},
-    totals={"marker": {"color": "#3498db"}},
-))
-waterfall_fig.update_layout(showlegend=False)
-st.plotly_chart(waterfall_fig, use_container_width=True)
-
 # --- Warning for unmatched products ---
 unmatched = merged_df[merged_df["cost_price"].isna()]
 if len(unmatched) > 0:
