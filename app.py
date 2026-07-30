@@ -7,15 +7,6 @@ from sheets_client import get_cost_data
 
 st.set_page_config(page_title="Profit Dashboard", page_icon="📊", layout="wide")
 
-# --- Authentication gate ---
-if not st.user.is_logged_in:
-    st.title("🔐 Profit Dashboard")
-    st.write("Log in to view your store analytics.")
-    if st.button("Log in with Google"):
-        st.login()
-    st.stop()
-
-
 # --- Load secrets ---
 shopify_cfg = st.secrets["shopify"]
 google_cfg = st.secrets["google"]
@@ -54,7 +45,7 @@ with st.spinner("Loading orders and cost data..."):
 
 # --- Header ---
 st.title("📊 Profit Dashboard")
-st.caption(f"Logged in as {st.user.name} • {len(merged_df)} line items across {merged_df['order_number'].nunique()} orders")
+st.caption(f"{len(merged_df)} line items across {merged_df['order_number'].nunique()} orders")
 
 # --- KPI cards ---
 col1, col2, col3, col4 = st.columns(4)
