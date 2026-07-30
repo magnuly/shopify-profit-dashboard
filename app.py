@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from shopify_client import get_access_token, fetch_all_orders, extract_line_items
-from sheets_client import get_cost_data
+from sheets_client import get_cost_data, get_overhead_costs
 
 st.set_page_config(page_title="Profit Dashboard", page_icon="📊", layout="wide")
 
@@ -30,35 +30,97 @@ def load_data():
     # Cost data from Google Sheets
     costs_df = get_cost_data(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
 
+    # Overhead costs
+    overhead = get_overhead_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
+
     # Join on product_key
     merged = items_df.merge(costs_df[["product_key", "cost_price"]], on="product_key", how="left")
     merged["total_cost"] = merged["cost_price"] * merged["quantity"]
     merged["profit"] = merged["revenue"] - merged["total_cost"]
     merged["margin_pct"] = (merged["profit"] / merged["revenue"] * 100).round(1)
 
-    return merged, items_df, costs_df
+    return merged, items_df, costs_df, overhead
 
 
 # --- Load data ---
 with st.spinner("Loading orders and cost data..."):
-    merged_df, items_df, costs_df = load_data()
+    merged_df, items_df, costs_df, overhead = load_data()
+
+# --- Calculate totals ---
+num_orders = merged_df["order_number"].nunique()
+total_revenue = merged_df["revenue"].sum()
+total_cogs = merged_df["total_cost"].sum()
+gross_profit = total_revenue - total_cogs
+
+# Monthly fixed costs - prorate based on date range
+date_range = (merged_df["order_date"].max() - merged_df["order_date"].min()).days
+months_covered = max(date_range / 30, 1)
+total_fixed_overhead = overhead["fixed_monthly_total"] * months_covered
+
+# Net profit after all costs
+net_profit = gross_profit - total_fixed_overhead
+net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 
 # --- Header ---
 st.title("📊 Profit Dashboard")
-st.caption(f"{len(merged_df)} line items across {merged_df['order_number'].nunique()} orders")
+st.caption(f"{len(merged_df)} line items across {num_orders} orders")
 
 # --- KPI cards ---
-col1, col2, col3, col4 = st.columns(4)
-
-total_revenue = merged_df["revenue"].sum()
-total_cost = merged_df["total_cost"].sum()
-total_profit = merged_df["profit"].sum()
-avg_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
+col1, col2, col3, col4, col5 = st.columns(5)
 
 col1.metric("Revenue", f"{total_revenue:,.0f} NOK")
-col2.metric("Cost (COGS)", f"{total_cost:,.0f} NOK")
-col3.metric("Profit", f"{total_profit:,.0f} NOK")
-col4.metric("Margin", f"{avg_margin:.1f}%")
+col2.metric("COGS", f"{total_cogs:,.0f} NOK")
+col3.metric("Gross Profit", f"{gross_profit:,.0f} NOK")
+col4.metric("Net Profit", f"{net_profit:,.0f} NOK")
+col5.metric("Net Margin", f"{net_margin:.1f}%")
+
+# --- Cost breakdown ---
+st.divider()
+st.subheader("Cost Breakdown")
+
+breakdown_col1, breakdown_col2 = st.columns(2)
+
+with breakdown_col1:
+    st.markdown("**Fixed Monthly Costs**")
+    fixed_data = [{"Cost": k, "Amount (NOK)": v} for k, v in overhead["fixed_monthly"].items()]
+    fixed_data.append({"Cost": "Total (monthly)", "Amount (NOK)": overhead["fixed_monthly_total"]})
+    st.dataframe(
+        pd.DataFrame(fixed_data).style.format({"Amount (NOK)": "{:,.2f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(f"Period covered: {months_covered:.1f} months → {total_fixed_overhead:,.0f} NOK total overhead")
+
+with breakdown_col2:
+    st.markdown("**Summary**")
+    summary_data = [
+        {"Item": "Total Revenue", "Amount (NOK)": total_revenue},
+        {"Item": "Product Costs (COGS)", "Amount (NOK)": -total_cogs},
+        {"Item": "Gross Profit", "Amount (NOK)": gross_profit},
+        {"Item": f"Fixed Overhead ({months_covered:.1f} months)", "Amount (NOK)": -total_fixed_overhead},
+        {"Item": "Net Profit", "Amount (NOK)": net_profit},
+    ]
+    st.dataframe(
+        pd.DataFrame(summary_data).style.format({"Amount (NOK)": "{:,.0f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+# --- Profit waterfall ---
+st.divider()
+st.subheader("Profit Waterfall")
+
+waterfall_fig = go.Figure(go.Waterfall(
+    x=["Revenue", "COGS", "Gross Profit", "Fixed Overhead", "Net Profit"],
+    y=[total_revenue, -total_cogs, 0, -total_fixed_overhead, 0],
+    measure=["absolute", "relative", "total", "relative", "total"],
+    connector={"line": {"color": "rgb(63, 63, 63)"}},
+    increasing={"marker": {"color": "#2ecc71"}},
+    decreasing={"marker": {"color": "#e74c3c"}},
+    totals={"marker": {"color": "#3498db"}},
+))
+waterfall_fig.update_layout(showlegend=False)
+st.plotly_chart(waterfall_fig, use_container_width=True)
 
 # --- Warning for unmatched products ---
 unmatched = merged_df[merged_df["cost_price"].isna()]
