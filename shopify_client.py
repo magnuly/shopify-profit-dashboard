@@ -66,6 +66,10 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         # Order-level discount (percentage/fixed codes applied at checkout)
         order_total_discount = float(order.get("total_discounts", 0))
 
+        # Discount codes used
+        discount_codes = order.get("discount_codes", [])
+        discount_code = discount_codes[0]["code"] if discount_codes else "Ingen rabatt"
+
         # Shipping revenue (what customer paid for shipping)
         shipping_revenue = sum(
             float(sl.get("price", 0)) for sl in order.get("shipping_lines", [])
@@ -109,6 +113,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "order_discount_share": order_discount_share,
                     "total_discount": item_discount + order_discount_share,
                     "shipping_revenue": 0.0,  # assigned to first item only
+                    "discount_code": discount_code,
                     "currency": currency,
                     "financial_status": financial_status,
                     "product_id": li.get("product_id"),

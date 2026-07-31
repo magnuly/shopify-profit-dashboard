@@ -19,7 +19,7 @@ SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v5"):
+def load_data(_version="v6"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -335,6 +335,48 @@ with geo_col2:
             "orders": "Bestillinger",
             "omsetning": "Omsetning (NOK)",
         }).style.format({"Omsetning (NOK)": "{:,.0f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+st.divider()
+
+# --- Discount codes breakdown ---
+st.subheader("Rabattkoder")
+
+discount_summary = (
+    active_df.drop_duplicates(subset="order_number")[["order_number", "discount_code", "revenue", "total_discount"]]
+    .groupby("discount_code")
+    .agg(
+        bestillinger=("order_number", "nunique"),
+        total_rabatt=("total_discount", "sum"),
+    )
+    .reset_index()
+    .sort_values("bestillinger", ascending=False)
+)
+discount_summary = discount_summary.rename(columns={"discount_code": "Rabattkode"})
+
+disc_col1, disc_col2 = st.columns(2)
+
+with disc_col1:
+    fig_disc = px.bar(
+        discount_summary,
+        x="bestillinger",
+        y="Rabattkode",
+        orientation="h",
+        labels={"bestillinger": "Antall bestillinger", "Rabattkode": ""},
+        color="total_rabatt",
+        color_continuous_scale=["#f9e79f", "#e74c3c"],
+    )
+    fig_disc.update_layout(coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
+    st.plotly_chart(fig_disc, use_container_width=True)
+
+with disc_col2:
+    st.dataframe(
+        discount_summary.rename(columns={
+            "bestillinger": "Bestillinger",
+            "total_rabatt": "Totalt rabattert (NOK)",
+        }).style.format({"Totalt rabattert (NOK)": "{:,.0f}"}),
         use_container_width=True,
         hide_index=True,
     )
