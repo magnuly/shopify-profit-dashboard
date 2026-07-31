@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from shopify_client import get_access_token, fetch_all_orders, extract_line_items
-from sheets_client import get_cost_data, get_overhead_costs
+from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
 
 st.set_page_config(page_title="Lønnsomhetsdashboard", page_icon="📊", layout="wide")
 
@@ -19,7 +19,7 @@ SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v3"):
+def load_data(_version="v4"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -32,6 +32,9 @@ def load_data(_version="v3"):
 
     # Overhead costs
     overhead = get_overhead_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
+
+    # Per-order costs
+    per_order = get_per_order_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
 
     # MVA (VAT) adjustment: Shopify revenue includes 25% MVA, costs are excl. MVA
     items_df["revenue_excl_mva"] = items_df["revenue"] / 1.25
@@ -46,12 +49,12 @@ def load_data(_version="v3"):
     # Exclude refunded orders from profit calculations
     merged["is_refunded"] = merged["financial_status"].isin(["refunded"])
 
-    return merged, items_df, costs_df, overhead
+    return merged, items_df, costs_df, overhead, per_order
 
 
 # --- Load data ---
 with st.spinner("Laster bestillinger og kostnadsdata..."):
-    merged_df, items_df, costs_df, overhead = load_data()
+    merged_df, items_df, costs_df, overhead, per_order = load_data()
 
 # --- Calculate totals (excluding refunded orders) ---
 active_df = merged_df[~merged_df["is_refunded"]]
@@ -63,13 +66,37 @@ total_mva = active_df["mva_collected"].sum()
 total_cogs = active_df["total_cost"].sum()
 gross_profit = total_revenue - total_cogs
 
+# Per-order costs: fixed costs per order + transaction fees based on payment method
+txn_fees = per_order["transaction_fees"]
+fixed_per_order_total = per_order["fixed_per_order_total"]
+
+# Calculate transaction fees per order based on payment method
+order_level = active_df.drop_duplicates(subset="order_number")[["order_number", "payment_method", "revenue"]].copy()
+order_level["revenue_excl_mva"] = order_level["revenue"] / 1.25
+
+
+def calc_txn_fee(row):
+    method = row["payment_method"].lower()
+    rev = row["revenue_excl_mva"]
+    if "vipps" in method:
+        fee_info = txn_fees.get("vipps", {"rate": 0, "fixed": 0})
+    else:
+        fee_info = txn_fees.get("kort", {"rate": 0, "fixed": 0})
+    return rev * fee_info["rate"] + fee_info["fixed"]
+
+
+order_level["txn_fee"] = order_level.apply(calc_txn_fee, axis=1)
+total_txn_fees = order_level["txn_fee"].sum()
+total_per_order_fixed = fixed_per_order_total * num_orders
+total_per_order_costs = total_txn_fees + total_per_order_fixed
+
 # Monthly fixed costs - prorate based on date range
 date_range = (active_df["order_date"].max() - active_df["order_date"].min()).days
 months_covered = max(date_range / 30, 1)
 total_fixed_overhead = overhead["fixed_monthly_total"] * months_covered
 
 # Net profit after all costs
-net_profit = gross_profit - total_fixed_overhead
+net_profit = gross_profit - total_per_order_costs - total_fixed_overhead
 net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 
 # --- Header ---
@@ -90,7 +117,7 @@ col6.metric("Netto margin", f"{net_margin:.1f}%")
 st.divider()
 st.subheader("Kostnadsfordeling")
 
-breakdown_col1, breakdown_col2 = st.columns(2)
+breakdown_col1, breakdown_col2, breakdown_col3 = st.columns(3)
 
 with breakdown_col1:
     st.markdown("**Faste månedlige kostnader**")
@@ -101,9 +128,30 @@ with breakdown_col1:
         use_container_width=True,
         hide_index=True,
     )
-    st.caption(f"Periode: {months_covered:.1f} måneder → {total_fixed_overhead:,.0f} kr totalt i faste kostnader")
+    st.caption(f"Periode: {months_covered:.1f} måneder → {total_fixed_overhead:,.0f} kr totalt")
 
 with breakdown_col2:
+    st.markdown("**Kostnader pr. bestilling**")
+    per_order_data = [{"Kostnad": k, "Beløp (NOK)": v} for k, v in per_order["fixed_per_order"].items()]
+    per_order_data.append({"Kostnad": "Sum pr. bestilling", "Beløp (NOK)": fixed_per_order_total})
+    st.dataframe(
+        pd.DataFrame(per_order_data).style.format({"Beløp (NOK)": "{:,.2f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+    st.caption(f"{num_orders} bestillinger → {total_per_order_fixed:,.0f} kr totalt")
+    st.markdown("**Transaksjonsgebyrer**")
+    txn_data = []
+    for method, info in txn_fees.items():
+        label = "Vipps" if method == "vipps" else "Kort"
+        rate_str = f"{info['rate']*100:.0f}%"
+        if info["fixed"] > 0:
+            rate_str += f" + {info['fixed']:.0f} kr"
+        txn_data.append({"Metode": label, "Sats": rate_str})
+    st.dataframe(pd.DataFrame(txn_data), use_container_width=True, hide_index=True)
+    st.caption(f"Totalt transaksjonsgebyrer: {total_txn_fees:,.0f} kr")
+
+with breakdown_col3:
     st.markdown("**Sammendrag**")
     summary_data = [
         {"Post": "Omsetning (inkl. MVA)", "Beløp (NOK)": total_revenue_incl_mva},
@@ -111,6 +159,8 @@ with breakdown_col2:
         {"Post": "Omsetning (eksl. MVA)", "Beløp (NOK)": total_revenue},
         {"Post": "Varekostnad (COGS)", "Beløp (NOK)": -total_cogs},
         {"Post": "Bruttofortjeneste", "Beløp (NOK)": gross_profit},
+        {"Post": "Transaksjonsgebyrer", "Beløp (NOK)": -total_txn_fees},
+        {"Post": f"Ordrekostnader ({num_orders} stk)", "Beløp (NOK)": -total_per_order_fixed},
         {"Post": f"Faste kostnader ({months_covered:.1f} mnd)", "Beløp (NOK)": -total_fixed_overhead},
         {"Post": "Netto resultat", "Beløp (NOK)": net_profit},
     ]
