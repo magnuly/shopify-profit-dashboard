@@ -7,6 +7,13 @@ from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
 
 st.set_page_config(page_title="Lønnsomhetsdashboard", page_icon="📊", layout="wide")
 
+# --- Sidebar (always visible) ---
+st.sidebar.title("⚙️ Innstillinger")
+if st.sidebar.button("🔄 Oppdater data"):
+    st.cache_data.clear()
+    st.rerun()
+st.sidebar.caption("Data oppdateres automatisk hver time.")
+
 # --- Load secrets ---
 shopify_cfg = st.secrets["shopify"]
 google_cfg = st.secrets["google"]
@@ -702,12 +709,6 @@ with st.expander("📋 Detaljerte linjer"):
     st.dataframe(display_df, use_container_width=True, height=500)
 
 # --- Refresh button ---
-st.sidebar.title("⚙️ Innstillinger")
-if st.sidebar.button("🔄 Oppdater data"):
-    st.cache_data.clear()
-    st.rerun()
-
-st.sidebar.caption("Data oppdateres automatisk hver time.")
 st.sidebar.caption(f"Butikk: {SHOP}.myshopify.com")
 
 # --- How it works ---
