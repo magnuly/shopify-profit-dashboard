@@ -14,6 +14,35 @@ if st.sidebar.button("🔄 Oppdater data"):
     st.rerun()
 st.sidebar.caption("Data oppdateres automatisk hver time.")
 
+# --- Product profit calculator ---
+st.sidebar.divider()
+st.sidebar.title("🧮 Produktkalkulator")
+st.sidebar.caption("Beregn fortjeneste for et nytt produkt")
+
+calc_cost = st.sidebar.number_input("Innkjøpspris (eksl. MVA)", min_value=0.0, value=0.0, step=1.0, format="%.2f", key="calc_cost")
+calc_sell = st.sidebar.number_input("Salgspris (inkl. MVA)", min_value=0.0, value=0.0, step=1.0, format="%.2f", key="calc_sell")
+
+if calc_sell > 0:
+    calc_sell_excl_mva = calc_sell / 1.25
+    calc_mva = calc_sell - calc_sell_excl_mva
+    calc_gross_profit = calc_sell_excl_mva - calc_cost
+    calc_margin = (calc_gross_profit / calc_sell_excl_mva * 100) if calc_sell_excl_mva > 0 else 0
+
+    # Estimate transaction fee (average of Vipps 2% and Card 5%+2kr)
+    calc_txn_fee_vipps = calc_sell_excl_mva * 0.02
+    calc_txn_fee_kort = calc_sell_excl_mva * 0.05 + 2
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"**Salgspris eksl. MVA:** {calc_sell_excl_mva:,.2f} kr")
+    st.sidebar.markdown(f"**MVA (25%):** {calc_mva:,.2f} kr")
+    st.sidebar.markdown(f"**Innkjøpspris:** {calc_cost:,.2f} kr")
+    st.sidebar.markdown(f"**Bruttofortjeneste:** {calc_gross_profit:,.2f} kr")
+    st.sidebar.markdown(f"**Margin:** {calc_margin:.1f}%")
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Estimerte transaksjonsgebyrer:")
+    st.sidebar.markdown(f"Vipps (2%): {calc_txn_fee_vipps:,.2f} kr → netto **{calc_gross_profit - calc_txn_fee_vipps:,.2f} kr**")
+    st.sidebar.markdown(f"Kort (5%+2kr): {calc_txn_fee_kort:,.2f} kr → netto **{calc_gross_profit - calc_txn_fee_kort:,.2f} kr")
+
 # --- Load secrets ---
 shopify_cfg = st.secrets["shopify"]
 google_cfg = st.secrets["google"]
