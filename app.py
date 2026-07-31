@@ -203,6 +203,79 @@ st.plotly_chart(fig3, use_container_width=True)
 
 st.divider()
 
+# --- Payment method & City breakdown ---
+st.subheader("Betalingsmetode og geografi")
+geo_col1, geo_col2 = st.columns(2)
+
+with geo_col1:
+    st.markdown("**Betalingsmetode**")
+    # Aggregate at order level to avoid counting line items
+    order_payments = (
+        merged_df.drop_duplicates(subset="order_number")[["order_number", "payment_method", "revenue_excl_mva"]]
+    )
+    payment_summary = (
+        merged_df.groupby("payment_method")
+        .agg(orders=("order_number", "nunique"), omsetning=("revenue_excl_mva", "sum"))
+        .reset_index()
+        .sort_values("omsetning", ascending=False)
+    )
+    # Clean up gateway names for display
+    payment_summary["payment_method"] = payment_summary["payment_method"].replace({
+        "shopify_payments": "Kort (Shopify Payments)",
+        "Vipps/MobilePay Payments": "Vipps",
+    })
+    fig_pay = px.pie(
+        payment_summary,
+        values="omsetning",
+        names="payment_method",
+        hole=0.4,
+        color_discrete_sequence=px.colors.qualitative.Set2,
+    )
+    fig_pay.update_traces(textposition="inside", textinfo="percent+label")
+    fig_pay.update_layout(showlegend=False)
+    st.plotly_chart(fig_pay, use_container_width=True)
+    st.dataframe(
+        payment_summary.rename(columns={
+            "payment_method": "Metode",
+            "orders": "Bestillinger",
+            "omsetning": "Omsetning (NOK)",
+        }).style.format({"Omsetning (NOK)": "{:,.0f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+with geo_col2:
+    st.markdown("**Bestillinger per by (Topp 15)**")
+    city_summary = (
+        merged_df.groupby("city")
+        .agg(orders=("order_number", "nunique"), omsetning=("revenue_excl_mva", "sum"))
+        .reset_index()
+        .sort_values("orders", ascending=False)
+        .head(15)
+    )
+    fig_city = px.bar(
+        city_summary,
+        x="orders",
+        y="city",
+        orientation="h",
+        labels={"orders": "Antall bestillinger", "city": ""},
+        color="omsetning",
+        color_continuous_scale=["#85c1e9", "#2471a3"],
+    )
+    fig_city.update_layout(coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
+    st.plotly_chart(fig_city, use_container_width=True)
+    st.dataframe(
+        city_summary.rename(columns={
+            "city": "By",
+            "orders": "Bestillinger",
+            "omsetning": "Omsetning (NOK)",
+        }).style.format({"Omsetning (NOK)": "{:,.0f}"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+st.divider()
+
 # --- Orders table ---
 st.subheader("Alle bestillinger")
 orders_summary = (

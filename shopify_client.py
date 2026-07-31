@@ -54,6 +54,14 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         currency = order["currency"]
         financial_status = order.get("financial_status", "")
 
+        # Payment method (order-level)
+        gateways = order.get("payment_gateway_names", [])
+        payment_method = gateways[0] if gateways else "Ukjent"
+
+        # Shipping city (order-level)
+        shipping_address = order.get("shipping_address") or {}
+        city = shipping_address.get("city", "Ukjent")
+
         for li in order.get("line_items", []):
             title = li.get("title", "")
             variant_title = li.get("variant_title", "")
@@ -78,6 +86,8 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "financial_status": financial_status,
                     "product_id": li.get("product_id"),
                     "variant_id": li.get("variant_id"),
+                    "payment_method": payment_method,
+                    "city": city,
                 }
             )
     return items
