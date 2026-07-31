@@ -43,6 +43,9 @@ def load_data():
     merged["profit"] = merged["revenue_excl_mva"] - merged["total_cost"]
     merged["margin_pct"] = (merged["profit"] / merged["revenue_excl_mva"] * 100).round(1)
 
+    # Exclude refunded orders from profit calculations
+    merged["is_refunded"] = merged["financial_status"].isin(["refunded"])
+
     return merged, items_df, costs_df, overhead
 
 
@@ -50,16 +53,18 @@ def load_data():
 with st.spinner("Laster bestillinger og kostnadsdata..."):
     merged_df, items_df, costs_df, overhead = load_data()
 
-# --- Calculate totals ---
-num_orders = merged_df["order_number"].nunique()
-total_revenue_incl_mva = merged_df["revenue"].sum()
-total_revenue = merged_df["revenue_excl_mva"].sum()
-total_mva = merged_df["mva_collected"].sum()
-total_cogs = merged_df["total_cost"].sum()
+# --- Calculate totals (excluding refunded orders) ---
+active_df = merged_df[~merged_df["is_refunded"]]
+num_orders = active_df["order_number"].nunique()
+num_refunded = merged_df[merged_df["is_refunded"]]["order_number"].nunique()
+total_revenue_incl_mva = active_df["revenue"].sum()
+total_revenue = active_df["revenue_excl_mva"].sum()
+total_mva = active_df["mva_collected"].sum()
+total_cogs = active_df["total_cost"].sum()
 gross_profit = total_revenue - total_cogs
 
 # Monthly fixed costs - prorate based on date range
-date_range = (merged_df["order_date"].max() - merged_df["order_date"].min()).days
+date_range = (active_df["order_date"].max() - active_df["order_date"].min()).days
 months_covered = max(date_range / 30, 1)
 total_fixed_overhead = overhead["fixed_monthly_total"] * months_covered
 
@@ -69,7 +74,7 @@ net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 
 # --- Header ---
 st.title("📊 Lønnsomhetsdashboard")
-st.caption(f"{len(merged_df)} linjer fordelt på {num_orders} bestillinger")
+st.caption(f"{len(active_df)} linjer fordelt på {num_orders} bestillinger" + (f" ({num_refunded} refundert ekskludert)" if num_refunded > 0 else ""))
 
 # --- KPI cards ---
 col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -116,7 +121,7 @@ with breakdown_col2:
     )
 
 # --- Warning for unmatched products ---
-unmatched = merged_df[merged_df["cost_price"].isna()]
+unmatched = active_df[active_df["cost_price"].isna()]
 if len(unmatched) > 0:
     with st.expander(f"⚠️ {unmatched['product_key'].nunique()} produkter uten kostnadsdata ({len(unmatched)} linjer)"):
         st.dataframe(
@@ -137,7 +142,7 @@ chart_col1, chart_col2 = st.columns(2)
 # Profit over time (weekly)
 with chart_col1:
     st.subheader("Fortjeneste per uke")
-    weekly = merged_df.copy()
+    weekly = active_df.copy()
     weekly["week"] = weekly["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
     weekly = (
         weekly.groupby("week")
@@ -159,7 +164,7 @@ with chart_col1:
 with chart_col2:
     st.subheader("Fortjeneste per produkt (Topp 15)")
     product_profit = (
-        merged_df.groupby("product_title")
+        active_df.groupby("product_title")
         .agg({"profit": "sum", "revenue_excl_mva": "sum", "quantity": "sum"})
         .sort_values("profit", ascending=False)
         .head(15)
@@ -182,7 +187,7 @@ st.divider()
 # --- Margin by product ---
 st.subheader("Margin % per produkt")
 margin_df = (
-    merged_df.dropna(subset=["cost_price"])
+    active_df.dropna(subset=["cost_price"])
     .groupby("product_title")
     .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum", "quantity": "sum"})
     .reset_index()
@@ -211,10 +216,10 @@ with geo_col1:
     st.markdown("**Betalingsmetode**")
     # Aggregate at order level to avoid counting line items
     order_payments = (
-        merged_df.drop_duplicates(subset="order_number")[["order_number", "payment_method", "revenue_excl_mva"]]
+        active_df.drop_duplicates(subset="order_number")[["order_number", "payment_method", "revenue_excl_mva"]]
     )
     payment_summary = (
-        merged_df.groupby("payment_method")
+        active_df.groupby("payment_method")
         .agg(orders=("order_number", "nunique"), omsetning=("revenue_excl_mva", "sum"))
         .reset_index()
         .sort_values("omsetning", ascending=False)
@@ -247,7 +252,7 @@ with geo_col1:
 with geo_col2:
     st.markdown("**Bestillinger per by (Topp 15)**")
     city_summary = (
-        merged_df.groupby("city")
+        active_df.groupby("city")
         .agg(orders=("order_number", "nunique"), omsetning=("revenue_excl_mva", "sum"))
         .reset_index()
         .sort_values("orders", ascending=False)
@@ -279,7 +284,7 @@ st.divider()
 # --- Orders table ---
 st.subheader("Alle bestillinger")
 orders_summary = (
-    merged_df.groupby(["order_number", "order_date", "financial_status"])
+    active_df.groupby(["order_number", "order_date", "financial_status"])
     .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum"})
     .reset_index()
     .sort_values("order_date", ascending=False)
@@ -303,7 +308,7 @@ st.dataframe(
 
 # --- Detailed line items (expandable) ---
 with st.expander("📋 Detaljerte linjer"):
-    display_df = merged_df[[
+    display_df = active_df[[
         "order_number", "order_date", "product_key", "quantity",
         "unit_price", "revenue_excl_mva", "cost_price", "total_cost", "profit", "margin_pct",
     ]].rename(columns={
