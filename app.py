@@ -435,3 +435,67 @@ if st.sidebar.button("🔄 Oppdater data"):
 
 st.sidebar.caption("Data oppdateres automatisk hver time.")
 st.sidebar.caption(f"Butikk: {SHOP}.myshopify.com")
+
+# --- How it works ---
+st.divider()
+st.subheader("Hvordan fungerer dette dashboardet?", help="Teknisk forklaring av dataflyt og kilder.")
+
+st.markdown("""
+```
+┌─────────────────────┐         ┌─────────────────────────────────┐
+│                     │         │         Google Sheets            │
+│   Shopify Admin     │         │                                 │
+│   (Bestillinger)    │         │  Tab 1: Produktpriser           │
+│                     │         │  Tab 2: Faste avgifter          │
+│  • Ordredata        │         │  Tab 3: Avgifter pr. bestilling │
+│  • Produkter        │         │                                 │
+│  • Rabatter         │         └────────────┬────────────────────┘
+│  • Betalingsmetode  │                      │
+│  • Fraktinntekter   │                      │
+│  • Leveringsadresse │                      │
+└─────────┬───────────┘                      │
+          │                                  │
+          │  Shopify Admin API               │  Google Sheets API
+          │  (henter ny token hver gang)     │  (via tjenestekonto)
+          │                                  │
+          ▼                                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                                                                 │
+│                    Streamlit Dashboard                           │
+│                                                                 │
+│   1. Henter alle bestillinger fra Shopify                       │
+│   2. Henter produktpriser fra Google Sheets                     │
+│   3. Kobler sammen på produktnavn                               │
+│   4. Beregner: Omsetning − MVA − Varekostnad − Gebyrer         │
+│      − Ordrekostnader − Faste kostnader = Netto resultat        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+""")
+
+with st.expander("Mer detaljer om beregningene"):
+    st.markdown("""
+**Datakilder:**
+- **Shopify Admin API** — Alle bestillinger med produkter, priser, rabatter, betalingsmetode og leveringsadresse. Ny tilgangstoken hentes automatisk ved hver lasting (utløper etter 24 timer).
+- **Google Sheets** — Tre faner med kostnadsdata som du vedlikeholder manuelt.
+
+**Beregningsflyt:**
+
+| Steg | Beskrivelse |
+|------|-------------|
+| 1 | Hent ordredata fra Shopify (alle bestillinger, ekskl. refunderte) |
+| 2 | Beregn omsetning per linje: (pris × antall) − rabatter + fraktinntekter |
+| 3 | Trekk fra 25% MVA for å få omsetning eksl. MVA |
+| 4 | Koble produktnavn med innkjøpspris fra Google Sheets |
+| 5 | Beregn varekostnad: innkjøpspris × antall solgt |
+| 6 | Beregn transaksjonsgebyrer basert på betalingsmetode (Vipps 2% / Kort 5%+2kr) |
+| 7 | Legg til faste ordrekostnader (emballasje, frakt, klistremerker, osv.) |
+| 8 | Beregn faste månedlige kostnader fordelt over perioden |
+| 9 | Netto resultat = Omsetning eksl. MVA − Varekostnad − Gebyrer − Ordrekostnader − Faste kostnader |
+
+**Oppdatering:**
+- Data caches i 1 time. Klikk "Oppdater data" i sidepanelet for å tvinge ny lasting.
+- Endringer i Google Sheets reflekteres ved neste oppdatering.
+- Nye bestillinger fra Shopify vises automatisk.
+""")
+
