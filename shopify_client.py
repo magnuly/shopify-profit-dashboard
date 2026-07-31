@@ -58,9 +58,10 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         gateways = order.get("payment_gateway_names", [])
         payment_method = gateways[0] if gateways else "Ukjent"
 
-        # Shipping city (order-level)
+        # Shipping city (order-level), fall back to billing address
         shipping_address = order.get("shipping_address") or {}
-        city = shipping_address.get("city", "Ukjent")
+        billing_address = order.get("billing_address") or {}
+        city = shipping_address.get("city") or billing_address.get("city") or "Ukjent"
 
         for li in order.get("line_items", []):
             title = li.get("title", "")
