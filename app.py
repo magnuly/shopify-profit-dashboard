@@ -19,13 +19,16 @@ SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v4"):
+def load_data(_version="v5"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
     items_df = pd.DataFrame(extract_line_items(orders))
     items_df["order_date"] = pd.to_datetime(items_df["order_date"])
-    items_df["revenue"] = items_df["unit_price"] * items_df["quantity"] - items_df["total_discount"]
+
+    # Revenue = (item price * qty) - discounts + shipping revenue
+    items_df["item_revenue"] = items_df["unit_price"] * items_df["quantity"] - items_df["total_discount"]
+    items_df["revenue"] = items_df["item_revenue"] + items_df["shipping_revenue"]
 
     # Cost data from Google Sheets
     costs_df = get_cost_data(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
@@ -39,6 +42,7 @@ def load_data(_version="v4"):
     # MVA (VAT) adjustment: Shopify revenue includes 25% MVA, costs are excl. MVA
     items_df["revenue_excl_mva"] = items_df["revenue"] / 1.25
     items_df["mva_collected"] = items_df["revenue"] - items_df["revenue_excl_mva"]
+    items_df["shipping_revenue_excl_mva"] = items_df["shipping_revenue"] / 1.25
 
     # Join on product_key
     merged = items_df.merge(costs_df[["product_key", "cost_price"]], on="product_key", how="left")
@@ -64,6 +68,8 @@ total_revenue_incl_mva = active_df["revenue"].sum()
 total_revenue = active_df["revenue_excl_mva"].sum()
 total_mva = active_df["mva_collected"].sum()
 total_cogs = active_df["total_cost"].sum()
+total_discounts = active_df["total_discount"].sum()
+total_shipping_revenue = active_df["shipping_revenue"].sum()
 gross_profit = total_revenue - total_cogs
 
 # Per-order costs: fixed costs per order + transaction fees based on payment method
@@ -153,8 +159,12 @@ with breakdown_col2:
 
 with breakdown_col3:
     st.markdown("**Sammendrag**")
+    items_gross = (active_df["unit_price"] * active_df["quantity"]).sum()
     summary_data = [
-        {"Post": "Omsetning (inkl. MVA)", "Beløp (NOK)": total_revenue_incl_mva},
+        {"Post": "Brutto varesalg (inkl. MVA)", "Beløp (NOK)": items_gross},
+        {"Post": "Rabatter gitt", "Beløp (NOK)": -total_discounts},
+        {"Post": "Fraktinntekter", "Beløp (NOK)": total_shipping_revenue},
+        {"Post": "Total omsetning (inkl. MVA)", "Beløp (NOK)": total_revenue_incl_mva},
         {"Post": "MVA til staten (25%)", "Beløp (NOK)": -total_mva},
         {"Post": "Omsetning (eksl. MVA)", "Beløp (NOK)": total_revenue},
         {"Post": "Varekostnad (COGS)", "Beløp (NOK)": -total_cogs},

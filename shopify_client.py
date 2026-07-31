@@ -63,7 +63,21 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         billing_address = order.get("billing_address") or {}
         city = shipping_address.get("city") or billing_address.get("city") or "Ukjent"
 
-        for li in order.get("line_items", []):
+        # Order-level discount (percentage/fixed codes applied at checkout)
+        order_total_discount = float(order.get("total_discounts", 0))
+
+        # Shipping revenue (what customer paid for shipping)
+        shipping_revenue = sum(
+            float(sl.get("price", 0)) for sl in order.get("shipping_lines", [])
+        )
+
+        # Calculate total item value for proportional discount distribution
+        line_items = order.get("line_items", [])
+        total_items_value = sum(
+            float(li.get("price", 0)) * li.get("quantity", 0) for li in line_items
+        )
+
+        for li in line_items:
             title = li.get("title", "")
             variant_title = li.get("variant_title", "")
 
@@ -72,6 +86,15 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                 product_key = f"{title} {variant_title}"
             else:
                 product_key = title
+
+            item_value = float(li.get("price", 0)) * li.get("quantity", 0)
+            # Per-line-item discount (direct item discounts)
+            item_discount = float(li.get("total_discount", 0))
+            # Proportional share of order-level discount
+            if total_items_value > 0:
+                order_discount_share = order_total_discount * (item_value / total_items_value)
+            else:
+                order_discount_share = 0
 
             items.append(
                 {
@@ -82,7 +105,10 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "variant_title": variant_title,
                     "quantity": li.get("quantity", 0),
                     "unit_price": float(li.get("price", 0)),
-                    "total_discount": float(li.get("total_discount", 0)),
+                    "item_discount": item_discount,
+                    "order_discount_share": order_discount_share,
+                    "total_discount": item_discount + order_discount_share,
+                    "shipping_revenue": 0.0,  # assigned to first item only
                     "currency": currency,
                     "financial_status": financial_status,
                     "product_id": li.get("product_id"),
@@ -91,4 +117,10 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "city": city,
                 }
             )
+
+        # Add shipping revenue to the first line item of this order
+        if items and shipping_revenue > 0:
+            # Find the last N items we just added (belonging to this order)
+            items[-len(line_items)]["shipping_revenue"] = shipping_revenue
+
     return items
