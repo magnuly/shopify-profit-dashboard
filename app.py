@@ -109,19 +109,19 @@ net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 st.title("📊 Lønnsomhetsdashboard")
 st.caption(f"{len(active_df)} linjer fordelt på {num_orders} bestillinger" + (f" ({num_refunded} refundert ekskludert)" if num_refunded > 0 else ""))
 
-# --- KPI cards ---
+# --- KPI cards with tooltips ---
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-col1.metric("Omsetning (inkl. MVA)", f"{total_revenue_incl_mva:,.0f} kr")
-col2.metric("MVA (25%)", f"{total_mva:,.0f} kr")
-col3.metric("Omsetning (eksl. MVA)", f"{total_revenue:,.0f} kr")
-col4.metric("Varekostnad", f"{total_cogs:,.0f} kr")
-col5.metric("Netto resultat", f"{net_profit:,.0f} kr")
-col6.metric("Netto margin", f"{net_margin:.1f}%")
+col1.metric("Omsetning (inkl. MVA)", f"{total_revenue_incl_mva:,.0f} kr", help="Total omsetning inkludert 25% merverdiavgift. Dette er hva kundene faktisk betalte.")
+col2.metric("MVA (25%)", f"{total_mva:,.0f} kr", help="Merverdiavgift som skal betales til staten. 25% av omsetningen ekskl. MVA.")
+col3.metric("Omsetning (eksl. MVA)", f"{total_revenue:,.0f} kr", help="Omsetning etter at MVA er trukket fra. Dette er det du faktisk sitter igjen med før kostnader.")
+col4.metric("Varekostnad", f"{total_cogs:,.0f} kr", help="Innkjøpskostnad for varene (COGS). Hentet fra Google Sheets-arket 'Produktpriser'.")
+col5.metric("Netto resultat", f"{net_profit:,.0f} kr", help="Endelig resultat etter alle kostnader: varekostnad, transaksjonsgebyrer, ordrekostnader, og faste månedlige utgifter.")
+col6.metric("Netto margin", f"{net_margin:.1f}%", help="Netto resultat som prosent av omsetning (eksl. MVA). Viser hvor mye du tjener per krone omsatt etter alle kostnader.")
 
 # --- Cost breakdown ---
 st.divider()
-st.subheader("Kostnadsfordeling")
+st.subheader("Kostnadsfordeling", help="Oversikt over alle kostnader fordelt på faste månedlige, per bestilling, og transaksjonsgebyrer.")
 
 breakdown_col1, breakdown_col2, breakdown_col3 = st.columns(3)
 
@@ -201,7 +201,7 @@ chart_col1, chart_col2 = st.columns(2)
 
 # Profit over time (weekly)
 with chart_col1:
-    st.subheader("Fortjeneste per uke")
+    st.subheader("Fortjeneste per uke", help="Ukentlig oversikt over omsetning (eksl. MVA), varekostnad og fortjeneste. Fortjeneste = Omsetning eksl. MVA − Varekostnad.")
     weekly = active_df.copy()
     weekly["week"] = weekly["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
     weekly = (
@@ -222,7 +222,7 @@ with chart_col1:
 
 # Profit by product (top 15)
 with chart_col2:
-    st.subheader("Fortjeneste per produkt (Topp 15)")
+    st.subheader("Fortjeneste per produkt (Topp 15)", help="De 15 produktene med høyest total fortjeneste. Fortjeneste = Omsetning eksl. MVA − Innkjøpspris.")
     product_profit = (
         active_df.groupby("product_title")
         .agg({"profit": "sum", "revenue_excl_mva": "sum", "quantity": "sum"})
@@ -245,7 +245,7 @@ with chart_col2:
 st.divider()
 
 # --- Margin by product ---
-st.subheader("Margin % per produkt")
+st.subheader("Margin % per produkt", help="Fortjenestemargin per produkt. Margin = (Fortjeneste / Omsetning eksl. MVA) × 100. Høyere er bedre. Kun produkter med kjent innkjøpspris vises.")
 margin_df = (
     active_df.dropna(subset=["cost_price"])
     .groupby("product_title")
@@ -269,7 +269,7 @@ st.plotly_chart(fig3, use_container_width=True)
 st.divider()
 
 # --- Payment method & City breakdown ---
-st.subheader("Betalingsmetode og geografi")
+st.subheader("Betalingsmetode og geografi", help="Fordeling av bestillinger etter betalingsmetode (kort/Vipps) og leveringsby.")
 geo_col1, geo_col2 = st.columns(2)
 
 with geo_col1:
@@ -342,7 +342,7 @@ with geo_col2:
 st.divider()
 
 # --- Discount codes breakdown ---
-st.subheader("Rabattkoder")
+st.subheader("Rabattkoder", help="Oversikt over hvilke rabattkoder som er brukt, antall bestillinger per kode, og totalt rabattert beløp.")
 
 discount_summary = (
     active_df.drop_duplicates(subset="order_number")[["order_number", "discount_code", "revenue", "total_discount"]]
@@ -384,7 +384,7 @@ with disc_col2:
 st.divider()
 
 # --- Orders table ---
-st.subheader("Alle bestillinger")
+st.subheader("Alle bestillinger", help="Oversikt over alle bestillinger med omsetning, varekostnad og fortjeneste. Refunderte bestillinger er ekskludert.")
 orders_summary = (
     active_df.groupby(["order_number", "order_date", "financial_status"])
     .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum"})
