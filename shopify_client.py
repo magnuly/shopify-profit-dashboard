@@ -53,6 +53,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         order_date = order["created_at"][:10]
         currency = order["currency"]
         financial_status = order.get("financial_status", "")
+        customer_email = order.get("email", "")
 
         # Payment method (order-level)
         gateways = order.get("payment_gateway_names", [])
@@ -120,6 +121,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "variant_id": li.get("variant_id"),
                     "payment_method": payment_method,
                     "city": city,
+                    "customer_email": customer_email,
                 }
             )
 

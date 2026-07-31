@@ -19,7 +19,7 @@ SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v6"):
+def load_data(_version="v7"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -183,16 +183,20 @@ with breakdown_col3:
 # --- Warning for unmatched products ---
 unmatched = active_df[active_df["cost_price"].isna()]
 if len(unmatched) > 0:
-    with st.expander(f"⚠️ {unmatched['product_key'].nunique()} produkter uten kostnadsdata ({len(unmatched)} linjer)"):
-        st.dataframe(
-            unmatched[["product_key", "quantity", "revenue_excl_mva"]]
-            .rename(columns={"product_key": "Produkt", "quantity": "Antall", "revenue_excl_mva": "Omsetning (eksl. MVA)"})
-            .groupby("Produkt")
-            .agg({"Antall": "sum", "Omsetning (eksl. MVA)": "sum"})
-            .sort_values("Omsetning (eksl. MVA)", ascending=False)
-            .reset_index(),
-            use_container_width=True,
-        )
+    st.markdown(
+        f"<h3 style='color:#e74c3c;'>⚠️ {unmatched['product_key'].nunique()} produkter uten kostnadsdata ({len(unmatched)} linjer)</h3>",
+        unsafe_allow_html=True,
+    )
+    st.warning("Disse produktene mangler innkjøpspris og kan derfor gi feil fortjeneste og margin.")
+    st.dataframe(
+        unmatched[["product_key", "quantity", "revenue_excl_mva"]]
+        .rename(columns={"product_key": "Produkt", "quantity": "Antall", "revenue_excl_mva": "Omsetning (eksl. MVA)"})
+        .groupby("Produkt")
+        .agg({"Antall": "sum", "Omsetning (eksl. MVA)": "sum"})
+        .sort_values("Omsetning (eksl. MVA)", ascending=False)
+        .reset_index(),
+        use_container_width=True,
+    )
 
 st.divider()
 
@@ -383,6 +387,276 @@ with disc_col2:
 
 st.divider()
 
+# --- Bestselgere ---
+st.subheader("Bestselgere", help="De 15 produktene med høyest solgt antall. Rangeringen er basert på volum, ikke fortjeneste.")
+best_sellers = (
+    active_df.groupby("product_title")
+    .agg(antall_solgt=("quantity", "sum"), omsetning=("revenue_excl_mva", "sum"))
+    .reset_index()
+    .sort_values("antall_solgt", ascending=False)
+    .head(15)
+)
+fig_best = px.bar(
+    best_sellers,
+    x="antall_solgt",
+    y="product_title",
+    orientation="h",
+    labels={"antall_solgt": "Antall solgt", "product_title": ""},
+    color_discrete_sequence=["#3498db"],
+)
+fig_best.update_layout(yaxis=dict(autorange="reversed"))
+st.plotly_chart(fig_best, use_container_width=True)
+st.dataframe(
+    best_sellers.rename(columns={
+        "product_title": "Produkt",
+        "antall_solgt": "Antall solgt",
+        "omsetning": "Omsetning (eksl. MVA)",
+    }).style.format({"Omsetning (eksl. MVA)": "{:,.0f}"}),
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.divider()
+
+# --- Gjennomsnittlig ordreverdi ---
+st.subheader("Gjennomsnittlig ordreverdi", help="Ukentlig gjennomsnittlig ordreverdi beregnet som omsetning eksl. MVA delt på antall unike bestillinger i samme uke.")
+order_totals = (
+    active_df.groupby("order_number")
+    .agg(
+        order_date=("order_date", "min"),
+        revenue_excl_mva=("revenue_excl_mva", "sum"),
+        total_cost=("total_cost", "sum"),
+        total_discount=("total_discount", "sum"),
+        shipping_revenue=("shipping_revenue", "sum"),
+        discount_code=("discount_code", "first"),
+        customer_email=("customer_email", "first"),
+    )
+    .reset_index()
+)
+overall_aov = total_revenue / num_orders if num_orders > 0 else 0
+st.metric("Gjennomsnittlig ordreverdi", f"{overall_aov:,.0f} kr", help="Total omsetning eksl. MVA delt på antall bestillinger.")
+weekly_aov = order_totals.copy()
+weekly_aov["week"] = weekly_aov["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+weekly_aov = (
+    weekly_aov.groupby("week")
+    .agg(omsetning=("revenue_excl_mva", "sum"), bestillinger=("order_number", "nunique"))
+    .reset_index()
+)
+weekly_aov["aov"] = weekly_aov["omsetning"] / weekly_aov["bestillinger"]
+fig_aov = px.line(
+    weekly_aov,
+    x="week",
+    y="aov",
+    labels={"week": "Uke", "aov": "Gjennomsnittlig ordreverdi (NOK)"},
+    color_discrete_sequence=["#2ecc71"],
+)
+fig_aov.update_layout(hovermode="x unified")
+st.plotly_chart(fig_aov, use_container_width=True)
+
+st.divider()
+
+# --- Daglig ordretakt ---
+st.subheader("Daglig ordretakt", help="Antall unike bestillinger per dag over tid, med gjennomsnittlig daglig ordretakt.")
+daily_orders = (
+    order_totals.groupby("order_date")
+    .agg(bestillinger=("order_number", "nunique"))
+    .reset_index()
+    .sort_values("order_date")
+)
+avg_orders_per_day = daily_orders["bestillinger"].mean() if len(daily_orders) > 0 else 0
+st.metric("Gjennomsnittlige bestillinger per dag", f"{avg_orders_per_day:.1f}", help="Gjennomsnittlig antall bestillinger på dager med ordredata.")
+fig_daily = px.line(
+    daily_orders,
+    x="order_date",
+    y="bestillinger",
+    labels={"order_date": "Dato", "bestillinger": "Bestillinger"},
+    color_discrete_sequence=["#3498db"],
+)
+fig_daily.update_layout(hovermode="x unified")
+st.plotly_chart(fig_daily, use_container_width=True)
+
+st.divider()
+
+# --- Gjentakende kunder ---
+st.subheader("Gjentakende kunder", help="Kunder gruppert på e-postadresse for å vise hvor mange som har lagt inn én, to eller tre eller flere bestillinger.")
+customer_orders = order_totals[order_totals["customer_email"].fillna("").str.len() > 0]
+customer_orders = (
+    customer_orders.groupby("customer_email")
+    .agg(bestillinger=("order_number", "nunique"))
+    .reset_index()
+)
+unique_customers = len(customer_orders)
+repeat_customers = len(customer_orders[customer_orders["bestillinger"] >= 2])
+repeat_rate = repeat_customers / unique_customers * 100 if unique_customers > 0 else 0
+rep_col1, rep_col2, rep_col3 = st.columns(3)
+rep_col1.metric("Unike kunder", f"{unique_customers:,}", help="Antall unike kunder med registrert e-postadresse.")
+rep_col2.metric("Kunder med 2+ bestillinger", f"{repeat_customers:,}", help="Antall kunder som har lagt inn minst to bestillinger.")
+rep_col3.metric("Gjenkjøpsrate", f"{repeat_rate:.1f}%", help="Andel kunder med minst to bestillinger.")
+repeat_distribution = pd.DataFrame({
+    "Ordrefrekvens": ["1 bestilling", "2 bestillinger", "3+ bestillinger"],
+    "Kunder": [
+        len(customer_orders[customer_orders["bestillinger"] == 1]),
+        len(customer_orders[customer_orders["bestillinger"] == 2]),
+        len(customer_orders[customer_orders["bestillinger"] >= 3]),
+    ],
+})
+fig_repeat = px.bar(
+    repeat_distribution,
+    x="Ordrefrekvens",
+    y="Kunder",
+    labels={"Ordrefrekvens": "Ordrefrekvens", "Kunder": "Antall kunder"},
+    color="Ordrefrekvens",
+    color_discrete_map={"1 bestilling": "#3498db", "2 bestillinger": "#f39c12", "3+ bestillinger": "#2ecc71"},
+)
+fig_repeat.update_layout(showlegend=False)
+st.plotly_chart(fig_repeat, use_container_width=True)
+
+st.divider()
+
+# --- Fraktlønnsomhet ---
+st.subheader("Fraktlønnsomhet", help="Sammenligner fraktinntekter fra kunder mot estimert fraktkostnad per ordre fra kostnadsarket.")
+estimated_shipping_cost_per_order = per_order["fixed_per_order"].get("Ca fraktkostnad", 0)
+total_estimated_shipping_cost = estimated_shipping_cost_per_order * num_orders
+shipping_profit = total_shipping_revenue - total_estimated_shipping_cost
+ship_col1, ship_col2, ship_col3 = st.columns(3)
+ship_col1.metric("Fraktinntekter", f"{total_shipping_revenue:,.0f} kr", help="Total frakt betalt av kunder.")
+ship_col2.metric("Estimert fraktkostnad", f"{total_estimated_shipping_cost:,.0f} kr", help="Estimert fraktkostnad per ordre multiplisert med antall bestillinger.")
+ship_col3.metric("Fraktresultat", f"{shipping_profit:,.0f} kr", help="Fraktinntekter minus estimert fraktkostnad.")
+weekly_shipping = order_totals.copy()
+weekly_shipping["week"] = weekly_shipping["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+weekly_shipping = (
+    weekly_shipping.groupby("week")
+    .agg(fraktinntekter=("shipping_revenue", "sum"), bestillinger=("order_number", "nunique"))
+    .reset_index()
+)
+weekly_shipping["estimert_fraktkostnad"] = weekly_shipping["bestillinger"] * estimated_shipping_cost_per_order
+weekly_shipping_chart = weekly_shipping.melt(
+    id_vars="week",
+    value_vars=["fraktinntekter", "estimert_fraktkostnad"],
+    var_name="Type",
+    value_name="NOK",
+)
+weekly_shipping_chart["Type"] = weekly_shipping_chart["Type"].replace({
+    "fraktinntekter": "Fraktinntekter",
+    "estimert_fraktkostnad": "Estimert fraktkostnad",
+})
+fig_ship = px.bar(
+    weekly_shipping_chart,
+    x="week",
+    y="NOK",
+    color="Type",
+    barmode="group",
+    labels={"week": "Uke", "NOK": "NOK"},
+    color_discrete_map={"Fraktinntekter": "#2ecc71", "Estimert fraktkostnad": "#e74c3c"},
+)
+st.plotly_chart(fig_ship, use_container_width=True)
+
+st.divider()
+
+# --- Rabattlønnsomhet ---
+st.subheader("Rabattlønnsomhet", help="Viser om rabattkoder gir høyere ordreverdi enn bestillinger uten rabatt, eller hovedsakelig reduserer marginen.")
+without_discount = order_totals[(order_totals["discount_code"] == "Ingen rabatt") | (order_totals["total_discount"] <= 0)]
+avg_without_discount = without_discount["revenue_excl_mva"].mean() if len(without_discount) > 0 else 0
+discount_profitability = (
+    order_totals[(order_totals["discount_code"] != "Ingen rabatt") & (order_totals["total_discount"] > 0)]
+    .groupby("discount_code")
+    .agg(
+        bestillinger=("order_number", "nunique"),
+        snitt_ordneverdi=("revenue_excl_mva", "mean"),
+        total_rabatt=("total_discount", "sum"),
+        total_omsetning=("revenue_excl_mva", "sum"),
+    )
+    .reset_index()
+    .sort_values("total_omsetning", ascending=False)
+)
+discount_profitability["Snitt uten rabatt"] = avg_without_discount
+discount_profitability["Vurdering"] = discount_profitability["snitt_ordneverdi"].apply(
+    lambda value: "Høyere ordreverdi" if value > avg_without_discount else "Lavere ordreverdi"
+)
+if len(discount_profitability) > 0:
+    fig_discount_profit = px.bar(
+        discount_profitability,
+        x="discount_code",
+        y=["snitt_ordneverdi", "Snitt uten rabatt"],
+        barmode="group",
+        labels={"discount_code": "Rabattkode", "value": "Gjennomsnittlig ordreverdi (NOK)", "variable": ""},
+        color_discrete_map={"snitt_ordneverdi": "#f39c12", "Snitt uten rabatt": "#3498db"},
+    )
+    fig_discount_profit.for_each_trace(lambda t: t.update(name={"snitt_ordneverdi": "Med rabattkode", "Snitt uten rabatt": "Uten rabatt"}[t.name]))
+    st.plotly_chart(fig_discount_profit, use_container_width=True)
+else:
+    st.info("Ingen rabattkoder med rabattbeløp funnet i aktive bestillinger.")
+st.dataframe(
+    discount_profitability.rename(columns={
+        "discount_code": "Rabattkode",
+        "bestillinger": "Bestillinger",
+        "snitt_ordneverdi": "Snitt ordreverdi med rabatt",
+        "total_rabatt": "Total rabatt gitt",
+        "total_omsetning": "Total omsetning",
+    })[["Rabattkode", "Bestillinger", "Snitt ordreverdi med rabatt", "Snitt uten rabatt", "Total rabatt gitt", "Total omsetning", "Vurdering"]].style.format({
+        "Snitt ordreverdi med rabatt": "{:,.0f}",
+        "Snitt uten rabatt": "{:,.0f}",
+        "Total rabatt gitt": "{:,.0f}",
+        "Total omsetning": "{:,.0f}",
+    }),
+    use_container_width=True,
+    hide_index=True,
+)
+
+st.divider()
+
+# --- Break-even analyse ---
+st.subheader("Break-even analyse", help="Beregner hvor mange bestillinger per måned som trengs for å dekke faste månedlige kostnader basert på gjennomsnittlig bidrag per ordre.")
+fixed_monthly_total = overhead["fixed_monthly_total"]
+avg_contribution_per_order = (total_revenue - total_cogs - total_per_order_costs) / num_orders if num_orders > 0 else 0
+break_even_orders = fixed_monthly_total / avg_contribution_per_order if avg_contribution_per_order > 0 else 0
+current_orders_per_month = num_orders / months_covered if months_covered > 0 else 0
+be_col1, be_col2, be_col3 = st.columns(3)
+be_col1.metric("Break-even per måned", f"{break_even_orders:,.0f} bestillinger", help="Faste månedlige kostnader delt på gjennomsnittlig bidragsmargin per ordre.")
+be_col2.metric("Nåværende ordretakt", f"{current_orders_per_month:,.0f} bestillinger/mnd", help="Antall bestillinger justert til månedlig takt basert på perioden i dataene.")
+be_col3.metric("Bidrag per ordre", f"{avg_contribution_per_order:,.0f} kr", help="Omsetning eksl. MVA minus varekostnad og ordrekostnader, delt på antall bestillinger.")
+break_even_visual = pd.DataFrame({
+    "Type": ["Nåværende takt", "Break-even"],
+    "Bestillinger per måned": [current_orders_per_month, break_even_orders],
+})
+fig_break_even = px.bar(
+    break_even_visual,
+    x="Type",
+    y="Bestillinger per måned",
+    color="Type",
+    labels={"Type": "", "Bestillinger per måned": "Bestillinger per måned"},
+    color_discrete_map={"Nåværende takt": "#2ecc71", "Break-even": "#e74c3c"},
+)
+fig_break_even.update_layout(showlegend=False)
+st.plotly_chart(fig_break_even, use_container_width=True)
+
+st.divider()
+
+# --- Bidragsmargin per produkt ---
+st.subheader("Bidragsmargin", help="Produktbidrag før faste kostnader. Beregnes som omsetning eksl. MVA minus innkjøpspris ganger antall solgt, uten fordeling av overhead.")
+contribution_products = (
+    active_df.dropna(subset=["cost_price"])
+    .assign(bidragsmargin=lambda df: df["revenue_excl_mva"] - df["cost_price"] * df["quantity"])
+    .groupby("product_title")
+    .agg(bidragsmargin=("bidragsmargin", "sum"), omsetning=("revenue_excl_mva", "sum"), antall=("quantity", "sum"))
+    .reset_index()
+    .sort_values("bidragsmargin", ascending=False)
+    .head(15)
+)
+fig_contribution = px.bar(
+    contribution_products,
+    x="bidragsmargin",
+    y="product_title",
+    orientation="h",
+    labels={"bidragsmargin": "Bidragsmargin (NOK)", "product_title": ""},
+    color="bidragsmargin",
+    color_continuous_scale=["#e74c3c", "#f39c12", "#2ecc71"],
+)
+fig_contribution.update_layout(showlegend=False, coloraxis_showscale=False, yaxis=dict(autorange="reversed"))
+st.plotly_chart(fig_contribution, use_container_width=True)
+
+st.divider()
+
 # --- Orders table ---
 st.subheader("Alle bestillinger", help="Oversikt over alle bestillinger med omsetning, varekostnad og fortjeneste. Refunderte bestillinger er ekskludert.")
 orders_summary = (
@@ -498,4 +772,3 @@ with st.expander("Mer detaljer om beregningene"):
 - Endringer i Google Sheets reflekteres ved neste oppdatering.
 - Nye bestillinger fra Shopify vises automatisk.
 """)
-
