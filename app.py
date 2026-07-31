@@ -5,7 +5,7 @@ import plotly.graph_objects as go
 from shopify_client import get_access_token, fetch_all_orders, extract_line_items
 from sheets_client import get_cost_data, get_overhead_costs
 
-st.set_page_config(page_title="Profit Dashboard", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Lønnsomhetsdashboard", page_icon="📊", layout="wide")
 
 # --- Load secrets ---
 shopify_cfg = st.secrets["shopify"]
@@ -34,7 +34,6 @@ def load_data():
     overhead = get_overhead_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
 
     # MVA (VAT) adjustment: Shopify revenue includes 25% MVA, costs are excl. MVA
-    # Revenue excl. MVA = revenue / 1.25
     items_df["revenue_excl_mva"] = items_df["revenue"] / 1.25
     items_df["mva_collected"] = items_df["revenue"] - items_df["revenue_excl_mva"]
 
@@ -48,7 +47,7 @@ def load_data():
 
 
 # --- Load data ---
-with st.spinner("Loading orders and cost data..."):
+with st.spinner("Laster bestillinger og kostnadsdata..."):
     merged_df, items_df, costs_df, overhead = load_data()
 
 # --- Calculate totals ---
@@ -69,49 +68,49 @@ net_profit = gross_profit - total_fixed_overhead
 net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 
 # --- Header ---
-st.title("📊 Profit Dashboard")
-st.caption(f"{len(merged_df)} line items across {num_orders} orders")
+st.title("📊 Lønnsomhetsdashboard")
+st.caption(f"{len(merged_df)} linjer fordelt på {num_orders} bestillinger")
 
 # --- KPI cards ---
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 
-col1.metric("Revenue (incl. MVA)", f"{total_revenue_incl_mva:,.0f} NOK")
-col2.metric("MVA (25%)", f"{total_mva:,.0f} NOK")
-col3.metric("Revenue (excl. MVA)", f"{total_revenue:,.0f} NOK")
-col4.metric("COGS", f"{total_cogs:,.0f} NOK")
-col5.metric("Net Profit", f"{net_profit:,.0f} NOK")
-col6.metric("Net Margin", f"{net_margin:.1f}%")
+col1.metric("Omsetning (inkl. MVA)", f"{total_revenue_incl_mva:,.0f} kr")
+col2.metric("MVA (25%)", f"{total_mva:,.0f} kr")
+col3.metric("Omsetning (eksl. MVA)", f"{total_revenue:,.0f} kr")
+col4.metric("Varekostnad", f"{total_cogs:,.0f} kr")
+col5.metric("Netto resultat", f"{net_profit:,.0f} kr")
+col6.metric("Netto margin", f"{net_margin:.1f}%")
 
 # --- Cost breakdown ---
 st.divider()
-st.subheader("Cost Breakdown")
+st.subheader("Kostnadsfordeling")
 
 breakdown_col1, breakdown_col2 = st.columns(2)
 
 with breakdown_col1:
-    st.markdown("**Fixed Monthly Costs**")
-    fixed_data = [{"Cost": k, "Amount (NOK)": v} for k, v in overhead["fixed_monthly"].items()]
-    fixed_data.append({"Cost": "Total (monthly)", "Amount (NOK)": overhead["fixed_monthly_total"]})
+    st.markdown("**Faste månedlige kostnader**")
+    fixed_data = [{"Kostnad": k, "Beløp (NOK)": v} for k, v in overhead["fixed_monthly"].items()]
+    fixed_data.append({"Kostnad": "Totalt (månedlig)", "Beløp (NOK)": overhead["fixed_monthly_total"]})
     st.dataframe(
-        pd.DataFrame(fixed_data).style.format({"Amount (NOK)": "{:,.2f}"}),
+        pd.DataFrame(fixed_data).style.format({"Beløp (NOK)": "{:,.2f}"}),
         use_container_width=True,
         hide_index=True,
     )
-    st.caption(f"Period covered: {months_covered:.1f} months → {total_fixed_overhead:,.0f} NOK total overhead")
+    st.caption(f"Periode: {months_covered:.1f} måneder → {total_fixed_overhead:,.0f} kr totalt i faste kostnader")
 
 with breakdown_col2:
-    st.markdown("**Summary**")
+    st.markdown("**Sammendrag**")
     summary_data = [
-        {"Item": "Revenue (incl. MVA)", "Amount (NOK)": total_revenue_incl_mva},
-        {"Item": "MVA owed to government (25%)", "Amount (NOK)": -total_mva},
-        {"Item": "Revenue (excl. MVA)", "Amount (NOK)": total_revenue},
-        {"Item": "Product Costs (COGS)", "Amount (NOK)": -total_cogs},
-        {"Item": "Gross Profit", "Amount (NOK)": gross_profit},
-        {"Item": f"Fixed Overhead ({months_covered:.1f} months)", "Amount (NOK)": -total_fixed_overhead},
-        {"Item": "Net Profit", "Amount (NOK)": net_profit},
+        {"Post": "Omsetning (inkl. MVA)", "Beløp (NOK)": total_revenue_incl_mva},
+        {"Post": "MVA til staten (25%)", "Beløp (NOK)": -total_mva},
+        {"Post": "Omsetning (eksl. MVA)", "Beløp (NOK)": total_revenue},
+        {"Post": "Varekostnad (COGS)", "Beløp (NOK)": -total_cogs},
+        {"Post": "Bruttofortjeneste", "Beløp (NOK)": gross_profit},
+        {"Post": f"Faste kostnader ({months_covered:.1f} mnd)", "Beløp (NOK)": -total_fixed_overhead},
+        {"Post": "Netto resultat", "Beløp (NOK)": net_profit},
     ]
     st.dataframe(
-        pd.DataFrame(summary_data).style.format({"Amount (NOK)": "{:,.0f}"}),
+        pd.DataFrame(summary_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
         use_container_width=True,
         hide_index=True,
     )
@@ -119,12 +118,13 @@ with breakdown_col2:
 # --- Warning for unmatched products ---
 unmatched = merged_df[merged_df["cost_price"].isna()]
 if len(unmatched) > 0:
-    with st.expander(f"⚠️ {unmatched['product_key'].nunique()} products without cost data ({len(unmatched)} line items)"):
+    with st.expander(f"⚠️ {unmatched['product_key'].nunique()} produkter uten kostnadsdata ({len(unmatched)} linjer)"):
         st.dataframe(
-            unmatched[["product_key", "quantity", "revenue"]]
-            .groupby("product_key")
-            .agg({"quantity": "sum", "revenue": "sum"})
-            .sort_values("revenue", ascending=False)
+            unmatched[["product_key", "quantity", "revenue_excl_mva"]]
+            .rename(columns={"product_key": "Produkt", "quantity": "Antall", "revenue_excl_mva": "Omsetning (eksl. MVA)"})
+            .groupby("Produkt")
+            .agg({"Antall": "sum", "Omsetning (eksl. MVA)": "sum"})
+            .sort_values("Omsetning (eksl. MVA)", ascending=False)
             .reset_index(),
             use_container_width=True,
         )
@@ -134,9 +134,9 @@ st.divider()
 # --- Charts ---
 chart_col1, chart_col2 = st.columns(2)
 
-# Profit over time
+# Profit over time (weekly)
 with chart_col1:
-    st.subheader("Profit Over Time (Weekly)")
+    st.subheader("Fortjeneste per uke")
     weekly = merged_df.copy()
     weekly["week"] = weekly["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
     weekly = (
@@ -148,18 +148,19 @@ with chart_col1:
         weekly,
         x="week",
         y=["revenue_excl_mva", "total_cost", "profit"],
-        labels={"value": "NOK", "week": "Week", "variable": ""},
+        labels={"value": "NOK", "week": "Uke", "variable": ""},
         color_discrete_map={"revenue_excl_mva": "#2ecc71", "total_cost": "#e74c3c", "profit": "#3498db"},
     )
     fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=-0.2))
+    fig.for_each_trace(lambda t: t.update(name={"revenue_excl_mva": "Omsetning", "total_cost": "Varekostnad", "profit": "Fortjeneste"}[t.name]))
     st.plotly_chart(fig, use_container_width=True)
 
 # Profit by product (top 15)
 with chart_col2:
-    st.subheader("Profit by Product (Top 15)")
+    st.subheader("Fortjeneste per produkt (Topp 15)")
     product_profit = (
         merged_df.groupby("product_title")
-        .agg({"profit": "sum", "revenue": "sum", "quantity": "sum"})
+        .agg({"profit": "sum", "revenue_excl_mva": "sum", "quantity": "sum"})
         .sort_values("profit", ascending=False)
         .head(15)
         .reset_index()
@@ -169,7 +170,7 @@ with chart_col2:
         x="profit",
         y="product_title",
         orientation="h",
-        labels={"profit": "Profit (NOK)", "product_title": ""},
+        labels={"profit": "Fortjeneste (NOK)", "product_title": ""},
         color="profit",
         color_continuous_scale=["#e74c3c", "#f39c12", "#2ecc71"],
     )
@@ -179,14 +180,14 @@ with chart_col2:
 st.divider()
 
 # --- Margin by product ---
-st.subheader("Margin % by Product")
+st.subheader("Margin % per produkt")
 margin_df = (
     merged_df.dropna(subset=["cost_price"])
     .groupby("product_title")
-    .agg({"revenue": "sum", "total_cost": "sum", "profit": "sum", "quantity": "sum"})
+    .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum", "quantity": "sum"})
     .reset_index()
 )
-margin_df["margin_pct"] = (margin_df["profit"] / margin_df["revenue"] * 100).round(1)
+margin_df["margin_pct"] = (margin_df["profit"] / margin_df["revenue_excl_mva"] * 100).round(1)
 margin_df = margin_df.sort_values("margin_pct", ascending=False)
 
 fig3 = px.bar(
@@ -203,39 +204,54 @@ st.plotly_chart(fig3, use_container_width=True)
 st.divider()
 
 # --- Orders table ---
-st.subheader("All Orders")
+st.subheader("Alle bestillinger")
 orders_summary = (
     merged_df.groupby(["order_number", "order_date", "financial_status"])
-    .agg({"revenue": "sum", "total_cost": "sum", "profit": "sum"})
+    .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum"})
     .reset_index()
     .sort_values("order_date", ascending=False)
+    .rename(columns={
+        "order_number": "Bestilling",
+        "order_date": "Dato",
+        "financial_status": "Status",
+        "revenue_excl_mva": "Omsetning",
+        "total_cost": "Varekostnad",
+        "profit": "Fortjeneste",
+    })
 )
-orders_summary["margin_pct"] = (orders_summary["profit"] / orders_summary["revenue"] * 100).round(1)
+orders_summary["Margin %"] = (orders_summary["Fortjeneste"] / orders_summary["Omsetning"] * 100).round(1)
 st.dataframe(
     orders_summary.style.format(
-        {"revenue": "{:,.0f}", "total_cost": "{:,.0f}", "profit": "{:,.0f}", "margin_pct": "{:.1f}%"}
+        {"Omsetning": "{:,.0f}", "Varekostnad": "{:,.0f}", "Fortjeneste": "{:,.0f}", "Margin %": "{:.1f}%"}
     ),
     use_container_width=True,
     height=400,
 )
 
 # --- Detailed line items (expandable) ---
-with st.expander("📋 Detailed Line Items"):
-    display_cols = [
+with st.expander("📋 Detaljerte linjer"):
+    display_df = merged_df[[
         "order_number", "order_date", "product_key", "quantity",
-        "unit_price", "revenue", "revenue_excl_mva", "cost_price", "total_cost", "profit", "margin_pct",
-    ]
-    st.dataframe(
-        merged_df[display_cols].sort_values("order_date", ascending=False),
-        use_container_width=True,
-        height=500,
-    )
+        "unit_price", "revenue_excl_mva", "cost_price", "total_cost", "profit", "margin_pct",
+    ]].rename(columns={
+        "order_number": "Bestilling",
+        "order_date": "Dato",
+        "product_key": "Produkt",
+        "quantity": "Antall",
+        "unit_price": "Enhetspris",
+        "revenue_excl_mva": "Omsetning (eksl. MVA)",
+        "cost_price": "Innkjøpspris",
+        "total_cost": "Varekostnad",
+        "profit": "Fortjeneste",
+        "margin_pct": "Margin %",
+    }).sort_values("Dato", ascending=False)
+    st.dataframe(display_df, use_container_width=True, height=500)
 
 # --- Refresh button ---
-st.sidebar.title("⚙️ Settings")
-if st.sidebar.button("🔄 Refresh Data"):
+st.sidebar.title("⚙️ Innstillinger")
+if st.sidebar.button("🔄 Oppdater data"):
     st.cache_data.clear()
     st.rerun()
 
-st.sidebar.caption("Data refreshes automatically every hour.")
-st.sidebar.caption(f"Store: {SHOP}.myshopify.com")
+st.sidebar.caption("Data oppdateres automatisk hver time.")
+st.sidebar.caption(f"Butikk: {SHOP}.myshopify.com")
