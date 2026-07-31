@@ -18,8 +18,8 @@ SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
 
 
 # --- Data loading (cached) ---
-@st.cache_data(ttl=3600)
-def load_data():
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_data(_version="v2"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
