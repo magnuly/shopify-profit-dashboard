@@ -123,8 +123,8 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
 
         # Check if Shopify already distributed discounts to line items
         items_discount_sum = sum(float(li.get("total_discount", 0)) for li in line_items)
-        # If line items already carry the discount, don't distribute order-level again
-        shopify_distributed = items_discount_sum > 0
+        # Calculate undistributed discount (e.g., free shipping, or codes not allocated to items)
+        undistributed_discount = max(0, order_total_discount - items_discount_sum)
 
         for li in line_items:
             title = li.get("title", "")
@@ -140,17 +140,13 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
             # Per-line-item discount (already distributed by Shopify)
             item_discount = float(li.get("total_discount", 0))
 
-            if shopify_distributed:
-                # Shopify already allocated discounts to line items — use as-is
-                total_discount = item_discount
-                order_discount_share = 0.0
+            # Distribute any remaining undistributed discount proportionally
+            if undistributed_discount > 0 and total_items_value > 0:
+                order_discount_share = undistributed_discount * (item_value / total_items_value)
             else:
-                # Shopify did NOT distribute — we do it proportionally
-                if total_items_value > 0:
-                    order_discount_share = order_total_discount * (item_value / total_items_value)
-                else:
-                    order_discount_share = 0.0
-                total_discount = order_discount_share
+                order_discount_share = 0.0
+
+            total_discount = item_discount + order_discount_share
 
             items.append(
                 {
