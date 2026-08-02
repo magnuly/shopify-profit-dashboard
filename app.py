@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from shopify_client import get_access_token, fetch_all_orders, extract_line_items
+from shopify_client import get_access_token, fetch_all_orders, fetch_transaction_fees, extract_line_items
 from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
 
 st.set_page_config(page_title="Lønnsomhetsdashboard", page_icon="📊", layout="wide")
@@ -62,12 +62,15 @@ st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v8"):
+def load_data(_version="v9"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
     items_df = pd.DataFrame(extract_line_items(orders))
     items_df["order_date"] = pd.to_datetime(items_df["order_date"])
+
+    # Actual transaction fees from Shopify Payments
+    fee_map = fetch_transaction_fees(token, SHOP)
 
     # Revenue = (item price * qty) - discounts + shipping revenue
     items_df["item_revenue"] = items_df["unit_price"] * items_df["quantity"] - items_df["total_discount"]
@@ -96,12 +99,12 @@ def load_data(_version="v8"):
     # Exclude refunded orders from profit calculations
     merged["is_refunded"] = merged["financial_status"].isin(["refunded"])
 
-    return merged, items_df, costs_df, overhead, per_order
+    return merged, items_df, costs_df, overhead, per_order, fee_map
 
 
 # --- Load data ---
 with st.spinner("Laster bestillinger og kostnadsdata..."):
-    merged_df, items_df, costs_df, overhead, per_order = load_data()
+    merged_df, items_df, costs_df, overhead, per_order, fee_map = load_data()
 
 # --- Calculate totals (excluding refunded orders) ---
 active_df = merged_df[~merged_df["is_refunded"]]
@@ -115,16 +118,21 @@ total_discounts = active_df["total_discount"].sum()
 total_shipping_revenue = active_df["shipping_revenue"].sum()
 gross_profit = total_revenue - total_cogs
 
-# Per-order costs: fixed costs per order + transaction fees based on payment method
+# Per-order costs: fixed costs per order + actual transaction fees from Shopify Payments
 txn_fees = per_order["transaction_fees"]
 fixed_per_order_total = per_order["fixed_per_order_total"]
 
-# Calculate transaction fees per order based on payment method
-order_level = active_df.drop_duplicates(subset="order_number")[["order_number", "payment_method", "revenue"]].copy()
+# Use actual fees from Shopify Payments API where available
+order_level = active_df.drop_duplicates(subset="order_number")[["order_number", "order_id", "payment_method", "revenue"]].copy()
 order_level["revenue_excl_mva"] = order_level["revenue"] / 1.25
 
-
+# Map actual fees by order_id
+order_level["actual_fee"] = order_level["order_id"].map(fee_map)
+# For orders without actual fee data (e.g., Vipps), estimate from spreadsheet rates
 def calc_txn_fee(row):
+    if pd.notna(row["actual_fee"]):
+        return row["actual_fee"]
+    # Fallback to estimate for orders not in Shopify Payments (e.g., Vipps)
     method = row["payment_method"].lower()
     rev = row["revenue_excl_mva"]
     if "vipps" in method:
@@ -133,9 +141,9 @@ def calc_txn_fee(row):
         fee_info = txn_fees.get("kort", {"rate": 0, "fixed": 0})
     return rev * fee_info["rate"] + fee_info["fixed"]
 
-
 order_level["txn_fee"] = order_level.apply(calc_txn_fee, axis=1)
 total_txn_fees = order_level["txn_fee"].sum()
+orders_with_actual_fees = order_level["actual_fee"].notna().sum()
 total_per_order_fixed = fixed_per_order_total * num_orders
 total_per_order_costs = total_txn_fees + total_per_order_fixed
 
@@ -196,9 +204,9 @@ with breakdown_col2:
         rate_str = f"{info['rate']*100:.0f}%"
         if info["fixed"] > 0:
             rate_str += f" + {info['fixed']:.0f} kr"
-        txn_data.append({"Metode": label, "Sats": rate_str})
+        txn_data.append({"Metode": label, "Sats (estimert)": rate_str})
     st.dataframe(pd.DataFrame(txn_data), use_container_width=True, hide_index=True)
-    st.caption(f"Totalt transaksjonsgebyrer: {total_txn_fees:,.0f} kr")
+    st.caption(f"Totalt gebyrer: {total_txn_fees:,.0f} kr ({orders_with_actual_fees} av {num_orders} med faktiske data fra Shopify Payments)")
 
 with breakdown_col3:
     st.markdown("**Sammendrag**")

@@ -45,11 +45,49 @@ def fetch_all_orders(
     return all_orders
 
 
+def fetch_transaction_fees(
+    access_token: str, shop: str, api_version: str = "2024-10"
+) -> dict:
+    """Fetch actual transaction fees from Shopify Payments balance transactions.
+    Returns a dict mapping source_order_id -> fee amount.
+    """
+    headers = {"X-Shopify-Access-Token": access_token}
+    url = f"https://{shop}.myshopify.com/admin/api/{api_version}/shopify_payments/balance/transactions.json?limit=250"
+
+    fee_map = {}
+    while url:
+        resp = requests.get(url, headers=headers)
+
+        if resp.status_code == 429:
+            retry_after = float(resp.headers.get("Retry-After", 2))
+            time.sleep(retry_after)
+            continue
+
+        if resp.status_code == 403:
+            # Scope not available, return empty
+            return {}
+
+        resp.raise_for_status()
+        data = resp.json()
+
+        for txn in data.get("transactions", []):
+            if txn.get("type") == "charge" and txn.get("source_order_id"):
+                order_id = txn["source_order_id"]
+                fee = float(txn.get("fee", 0))
+                # Accumulate fees per order (in case of multiple charges)
+                fee_map[order_id] = fee_map.get(order_id, 0) + fee
+
+        url = resp.links.get("next", {}).get("url")
+
+    return fee_map
+
+
 def extract_line_items(orders: list[dict]) -> list[dict]:
     """Flatten orders into individual line items with relevant fields."""
     items = []
     for order in orders:
         order_number = order["order_number"]
+        order_id = order["id"]
         order_date = order["created_at"][:10]
         order_created_at = order["created_at"]
         currency = order["currency"]
@@ -105,6 +143,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
             items.append(
                 {
                     "order_number": order_number,
+                    "order_id": order_id,
                     "order_date": order_date,
                     "order_created_at": order_created_at,
                     "product_key": product_key,
