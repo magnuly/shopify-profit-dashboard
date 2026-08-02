@@ -121,6 +121,11 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
             float(li.get("price", 0)) * li.get("quantity", 0) for li in line_items
         )
 
+        # Check if Shopify already distributed discounts to line items
+        items_discount_sum = sum(float(li.get("total_discount", 0)) for li in line_items)
+        # If line items already carry the discount, don't distribute order-level again
+        shopify_distributed = items_discount_sum > 0
+
         for li in line_items:
             title = li.get("title", "")
             variant_title = li.get("variant_title", "")
@@ -132,13 +137,20 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                 product_key = title
 
             item_value = float(li.get("price", 0)) * li.get("quantity", 0)
-            # Per-line-item discount (direct item discounts)
+            # Per-line-item discount (already distributed by Shopify)
             item_discount = float(li.get("total_discount", 0))
-            # Proportional share of order-level discount
-            if total_items_value > 0:
-                order_discount_share = order_total_discount * (item_value / total_items_value)
+
+            if shopify_distributed:
+                # Shopify already allocated discounts to line items — use as-is
+                total_discount = item_discount
+                order_discount_share = 0.0
             else:
-                order_discount_share = 0
+                # Shopify did NOT distribute — we do it proportionally
+                if total_items_value > 0:
+                    order_discount_share = order_total_discount * (item_value / total_items_value)
+                else:
+                    order_discount_share = 0.0
+                total_discount = order_discount_share
 
             items.append(
                 {
@@ -153,7 +165,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "unit_price": float(li.get("price", 0)),
                     "item_discount": item_discount,
                     "order_discount_share": order_discount_share,
-                    "total_discount": item_discount + order_discount_share,
+                    "total_discount": total_discount,
                     "shipping_revenue": 0.0,  # assigned to first item only
                     "discount_code": discount_code,
                     "currency": currency,
