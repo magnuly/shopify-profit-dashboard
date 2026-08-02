@@ -658,7 +658,7 @@ with tab_rabatter:
     st.subheader("Rabattkoder", help="Oversikt over hvilke rabattkoder som er brukt, antall bestillinger per kode, og totalt rabattert beløp.")
 
     discount_summary = (
-        active_df.drop_duplicates(subset="order_number")[["order_number", "discount_code", "revenue", "total_discount"]]
+        active_df.drop_duplicates(subset="order_number")[["order_number", "discount_code", "revenue_excl_mva", "total_discount"]]
         .groupby("discount_code")
         .agg(
             bestillinger=("order_number", "nunique"),
@@ -667,6 +667,16 @@ with tab_rabatter:
         .reset_index()
         .sort_values("bestillinger", ascending=False)
     )
+    # Add revenue and profit per discount code (from all line items, not just first per order)
+    discount_revenue = (
+        active_df.groupby("discount_code")
+        .agg(
+            omsetning=("revenue_excl_mva", "sum"),
+            fortjeneste=("profit", "sum"),
+        )
+        .reset_index()
+    )
+    discount_summary = discount_summary.merge(discount_revenue, on="discount_code", how="left")
     discount_summary = discount_summary.rename(columns={"discount_code": "Rabattkode"})
 
     disc_col1, disc_col2 = st.columns(2)
@@ -689,7 +699,13 @@ with tab_rabatter:
             discount_summary.rename(columns={
                 "bestillinger": "Bestillinger",
                 "total_rabatt": "Totalt rabattert (NOK)",
-            }).style.format({"Totalt rabattert (NOK)": "{:,.0f}"}),
+                "omsetning": "Omsetning eksl. MVA (NOK)",
+                "fortjeneste": "Fortjeneste (NOK)",
+            }).style.format({
+                "Totalt rabattert (NOK)": "{:,.0f}",
+                "Omsetning eksl. MVA (NOK)": "{:,.0f}",
+                "Fortjeneste (NOK)": "{:,.0f}",
+            }),
             use_container_width=True,
             hide_index=True,
         )
