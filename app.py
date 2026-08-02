@@ -123,7 +123,16 @@ txn_fees = per_order["transaction_fees"]
 fixed_per_order_total = per_order["fixed_per_order_total"]
 
 # Use actual fees from Shopify Payments API where available
-order_level = active_df.drop_duplicates(subset="order_number")[["order_number", "order_id", "payment_method", "revenue"]].copy()
+# Aggregate total revenue per order (sum of all line items)
+order_level = (
+    active_df.groupby("order_number")
+    .agg(
+        order_id=("order_id", "first"),
+        payment_method=("payment_method", "first"),
+        revenue=("revenue", "sum"),
+    )
+    .reset_index()
+)
 order_level["revenue_excl_mva"] = order_level["revenue"] / 1.25
 
 # Map actual fees by order_id
