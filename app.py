@@ -193,7 +193,62 @@ tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, ta
 ])
 
 with tab_okonomi:
-    # Section not found: kostnadsfordeling
+    st.subheader("Kostnadsfordeling", help="Oversikt over alle kostnader fordelt på faste månedlige, per bestilling, og transaksjonsgebyrer.")
+
+    breakdown_col1, breakdown_col2, breakdown_col3 = st.columns(3)
+
+    with breakdown_col1:
+        st.markdown("**Faste månedlige kostnader**")
+        fixed_data = [{"Kostnad": k, "Beløp (NOK)": v} for k, v in overhead["fixed_monthly"].items()]
+        fixed_data.append({"Kostnad": "Totalt (månedlig)", "Beløp (NOK)": overhead["fixed_monthly_total"]})
+        st.dataframe(
+            pd.DataFrame(fixed_data).style.format({"Beløp (NOK)": "{:,.2f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"Periode: {months_covered:.1f} måneder → {total_fixed_overhead:,.0f} kr totalt")
+
+    with breakdown_col2:
+        st.markdown("**Kostnader pr. bestilling**")
+        per_order_data = [{"Kostnad": k, "Beløp (NOK)": v} for k, v in per_order["fixed_per_order"].items()]
+        per_order_data.append({"Kostnad": "Sum pr. bestilling", "Beløp (NOK)": fixed_per_order_total})
+        st.dataframe(
+            pd.DataFrame(per_order_data).style.format({"Beløp (NOK)": "{:,.2f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"{num_orders} bestillinger → {total_per_order_fixed:,.0f} kr totalt")
+        st.markdown("**Transaksjonsgebyrer**")
+        avg_fee_rate = (total_txn_fees / total_revenue * 100) if total_revenue > 0 else 0
+        txn_data = [
+            {"Metode": "Kort (Shopify Payments)", "Kilde": "Faktisk fra API", "Totalt gebyr": f"{order_level[order_level['actual_fee'].notna()]['txn_fee'].sum():,.0f} kr"},
+            {"Metode": "Vipps (estimert 2%)", "Kilde": "Estimat fra regneark", "Totalt gebyr": f"{order_level[order_level['actual_fee'].isna()]['txn_fee'].sum():,.0f} kr"},
+        ]
+        st.dataframe(pd.DataFrame(txn_data), use_container_width=True, hide_index=True)
+        st.caption(f"Totalt gebyrer: {total_txn_fees:,.0f} kr (snitt {avg_fee_rate:.2f}% av omsetning)")
+
+    with breakdown_col3:
+        st.markdown("**Sammendrag**")
+        items_gross = (active_df["unit_price"] * active_df["quantity"]).sum()
+        summary_data = [
+            {"Post": "Brutto varesalg (inkl. MVA)", "Beløp (NOK)": items_gross},
+            {"Post": "Rabatter gitt", "Beløp (NOK)": -total_discounts},
+            {"Post": "Fraktinntekter", "Beløp (NOK)": total_shipping_revenue},
+            {"Post": "Total omsetning (inkl. MVA)", "Beløp (NOK)": total_revenue_incl_mva},
+            {"Post": "MVA til staten (25%)", "Beløp (NOK)": -total_mva},
+            {"Post": "Omsetning (eksl. MVA)", "Beløp (NOK)": total_revenue},
+            {"Post": "Varekostnad (COGS)", "Beløp (NOK)": -total_cogs},
+            {"Post": "Bruttofortjeneste", "Beløp (NOK)": gross_profit},
+            {"Post": "Transaksjonsgebyrer", "Beløp (NOK)": -total_txn_fees},
+            {"Post": f"Ordrekostnader ({num_orders} stk)", "Beløp (NOK)": -total_per_order_fixed},
+            {"Post": f"Faste kostnader ({months_covered:.1f} mnd)", "Beløp (NOK)": -total_fixed_overhead},
+            {"Post": "Netto resultat", "Beløp (NOK)": net_profit},
+        ]
+        st.dataframe(
+            pd.DataFrame(summary_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     unmatched = active_df[active_df["cost_price"].isna()]
     if len(unmatched) > 0:
