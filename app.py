@@ -773,6 +773,7 @@ with tab_rabatter:
             use_container_width=True,
             hide_index=True,
         )
+        st.caption("**Bestillinger** = antall unike bestillinger med denne koden • **Totalt rabattert** = sum av alle rabatter gitt med denne koden • **Omsetning eksl. MVA** = total omsetning etter MVA-fradrag for bestillinger med denne koden • **Fortjeneste** = omsetning minus varekostnad (før faste kostnader og gebyrer)")
 
 
 
@@ -824,6 +825,7 @@ with tab_rabatter:
         use_container_width=True,
         hide_index=True,
     )
+    st.caption("**Snitt ordreverdi med rabatt** = gjennomsnittlig ordreverdi (eksl. MVA) for bestillinger som brukte denne koden • **Snitt uten rabatt** = gjennomsnittlig ordreverdi for bestillinger uten rabattkode • **Vurdering** = om koden driver høyere ordreverdi enn normalt, eller bare reduserer marginen")
 
 
 
