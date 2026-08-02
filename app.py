@@ -292,6 +292,68 @@ with tab_okonomi:
             use_container_width=True,
         )
 
+    # --- Projected year result ---
+    st.divider()
+    st.subheader("Prognose for regnskapsåret", help="Projisert årsresultat basert på historisk daglig gjennomsnitt, ekstrapolert til hele regnskapsåret (1. jan – 31. des).")
+
+    from datetime import date as date_type
+    today = date_type.today()
+    year_start = date_type(today.year, 1, 1)
+    year_end = date_type(today.year, 12, 31)
+    days_in_year = (year_end - year_start).days + 1
+
+    # Days with data in this calendar year
+    year_orders = active_df[active_df["order_date"].dt.year == today.year]
+    if len(year_orders) > 0:
+        first_order_date = year_orders["order_date"].min().date()
+        last_order_date = year_orders["order_date"].max().date()
+        days_with_data = (last_order_date - first_order_date).days + 1
+        days_remaining = (year_end - today).days
+
+        # Daily averages from actual data
+        daily_revenue = year_orders["revenue_excl_mva"].sum() / days_with_data
+        daily_cogs = year_orders["total_cost"].sum() / days_with_data
+        daily_orders = year_orders["order_number"].nunique() / days_with_data
+
+        # Project to full year
+        projected_revenue = daily_revenue * days_in_year
+        projected_cogs = daily_cogs * days_in_year
+        projected_orders = daily_orders * days_in_year
+        projected_txn_fees = projected_revenue * (total_txn_fees / total_revenue) if total_revenue > 0 else 0
+        projected_per_order_costs = fixed_per_order_total * projected_orders
+        projected_fixed_overhead = overhead["fixed_monthly_total"] * 12
+        projected_net_profit = projected_revenue - projected_cogs - projected_txn_fees - projected_per_order_costs - projected_fixed_overhead
+        projected_margin = (projected_net_profit / projected_revenue * 100) if projected_revenue > 0 else 0
+
+        # Current actual YTD
+        ytd_revenue = year_orders["revenue_excl_mva"].sum()
+        ytd_net = net_profit  # Already calculated above
+
+        prog_col1, prog_col2, prog_col3 = st.columns(3)
+        prog_col1.metric("Projisert omsetning (år)", f"{projected_revenue:,.0f} kr")
+        prog_col2.metric("Projisert netto resultat (år)", f"{projected_net_profit:,.0f} kr")
+        prog_col3.metric("Projisert netto margin", f"{projected_margin:.1f}%")
+
+        st.markdown(f"**Basert på:** {days_with_data} dager med data ({first_order_date.strftime('%d.%m')} – {last_order_date.strftime('%d.%m.%Y')})")
+        st.markdown(f"**Daglig snitt:** {daily_orders:.1f} bestillinger / {daily_revenue:,.0f} kr omsetning")
+
+        prognose_data = [
+            {"Post": "Projisert omsetning (eksl. MVA)", "Beløp (NOK)": projected_revenue},
+            {"Post": "Projisert varekostnad", "Beløp (NOK)": -projected_cogs},
+            {"Post": "Projisert transaksjonsgebyrer", "Beløp (NOK)": -projected_txn_fees},
+            {"Post": f"Projisert ordrekostnader ({projected_orders:.0f} stk)", "Beløp (NOK)": -projected_per_order_costs},
+            {"Post": "Faste kostnader (12 mnd)", "Beløp (NOK)": -projected_fixed_overhead},
+            {"Post": "Projisert netto resultat", "Beløp (NOK)": projected_net_profit},
+        ]
+        st.dataframe(
+            pd.DataFrame(prognose_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(f"⚠️ Prognosen antar at resten av året følger samme takt som de siste {days_with_data} dagene.")
+    else:
+        st.info("Ingen bestillinger funnet for inneværende år.")
+
 
 
 
