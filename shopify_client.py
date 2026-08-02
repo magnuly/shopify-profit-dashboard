@@ -110,6 +110,13 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         discount_codes = order.get("discount_codes", [])
         discount_code = discount_codes[0]["code"] if discount_codes else "Ingen rabatt"
 
+        # Manual overrides for discount code attribution
+        DISCOUNT_CODE_OVERRIDES = {
+            1019: "kira30",
+        }
+        if order_number in DISCOUNT_CODE_OVERRIDES:
+            discount_code = DISCOUNT_CODE_OVERRIDES[order_number]
+
         # Shipping revenue (what customer paid for shipping)
         shipping_revenue = sum(
             float(sl.get("price", 0)) for sl in order.get("shipping_lines", [])
