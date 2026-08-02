@@ -330,7 +330,7 @@ with tab_okonomi:
         ytd_net = net_profit  # Already calculated above
 
         prog_col1, prog_col2, prog_col3 = st.columns(3)
-        prog_col1.metric("Projisert omsetning (år)", f"{projected_revenue:,.0f} kr")
+        prog_col1.metric("Projisert omsetning (år, eksl. MVA)", f"{projected_revenue:,.0f} kr")
         prog_col2.metric("Projisert netto resultat (år)", f"{projected_net_profit:,.0f} kr")
         prog_col3.metric("Projisert netto margin", f"{projected_margin:.1f}%")
 
