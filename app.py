@@ -14,6 +14,13 @@ if st.sidebar.button("🔄 Oppdater data"):
     st.rerun()
 st.sidebar.caption("Data oppdateres automatisk hver time.")
 
+# --- Sidebar links ---
+st.sidebar.divider()
+st.sidebar.markdown("**Hurtiglenker**")
+st.sidebar.markdown(f"[🛒 Shopify Admin](https://admin.shopify.com/store/{SHOP})")
+st.sidebar.markdown("[🌐 nariz.no](https://nariz.no)")
+st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID})")
+
 # --- Product profit calculator ---
 st.sidebar.divider()
 st.sidebar.title("🧮 Produktkalkulator")
