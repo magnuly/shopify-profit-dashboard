@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from shopify_client import get_access_token, fetch_all_orders, fetch_transaction_fees, extract_line_items
 from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
+from vipps_client import get_vipps_access_token, get_vipps_ledger_id, fetch_vipps_fees
 
 st.set_page_config(page_title="Lønnsomhetsdashboard", page_icon="📊", layout="wide")
 
@@ -46,11 +47,16 @@ if calc_sell > 0:
 # --- Load secrets ---
 shopify_cfg = st.secrets["shopify"]
 google_cfg = st.secrets["google"]
+vipps_cfg = st.secrets["vipps"]
 SHOP = shopify_cfg["shop"]
 CLIENT_ID = shopify_cfg["client_id"]
 CLIENT_SECRET = shopify_cfg["client_secret"]
 SPREADSHEET_ID = google_cfg["spreadsheet_id"]
 SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
+VIPPS_CLIENT_ID = vipps_cfg["client_id"]
+VIPPS_CLIENT_SECRET = vipps_cfg["client_secret"]
+VIPPS_SUBSCRIPTION_KEY = vipps_cfg["subscription_key"]
+VIPPS_MSN = vipps_cfg["msn"]
 
 # --- Sidebar links (after secrets loaded) ---
 st.sidebar.divider()
@@ -62,7 +68,7 @@ st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v12"):
+def load_data(_version="v13"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -71,6 +77,14 @@ def load_data(_version="v12"):
 
     # Actual transaction fees from Shopify Payments
     fee_map = fetch_transaction_fees(token, SHOP)
+
+    # Actual transaction fees from Vipps
+    try:
+        vipps_token = get_vipps_access_token(VIPPS_CLIENT_ID, VIPPS_CLIENT_SECRET, VIPPS_SUBSCRIPTION_KEY, VIPPS_MSN)
+        vipps_ledger_id = get_vipps_ledger_id(vipps_token, VIPPS_SUBSCRIPTION_KEY, VIPPS_MSN)
+        vipps_fees_data = fetch_vipps_fees(vipps_token, VIPPS_SUBSCRIPTION_KEY, VIPPS_MSN, vipps_ledger_id)
+    except Exception:
+        vipps_fees_data = {"total_fees": 0, "total_captured": 0, "avg_rate": 0, "num_transactions": 0}
 
     # Revenue = (item price * qty) - discounts + shipping revenue
     items_df["item_revenue"] = items_df["unit_price"] * items_df["quantity"] - items_df["total_discount"]
@@ -99,12 +113,12 @@ def load_data(_version="v12"):
     # Exclude refunded orders from profit calculations
     merged["is_refunded"] = merged["financial_status"].isin(["refunded"])
 
-    return merged, items_df, costs_df, overhead, per_order, fee_map
+    return merged, items_df, costs_df, overhead, per_order, fee_map, vipps_fees_data
 
 
 # --- Load data ---
 with st.spinner("Laster bestillinger og kostnadsdata..."):
-    merged_df, items_df, costs_df, overhead, per_order, fee_map = load_data()
+    merged_df, items_df, costs_df, overhead, per_order, fee_map, vipps_fees_data = load_data()
 
 # --- Calculate totals (excluding refunded orders) ---
 active_df = merged_df[~merged_df["is_refunded"]]
@@ -118,11 +132,12 @@ total_discounts = active_df["total_discount"].sum()
 total_shipping_revenue = active_df["shipping_revenue"].sum()
 gross_profit = total_revenue - total_cogs
 
-# Per-order costs: fixed costs per order + actual transaction fees from Shopify Payments
+# Per-order costs: fixed costs per order + actual transaction fees
 txn_fees = per_order["transaction_fees"]
 fixed_per_order_total = per_order["fixed_per_order_total"]
 
-# Use actual fees from Shopify Payments API where available
+# Use actual fees from Shopify Payments API for card orders
+# Use actual fees from Vipps Report API for Vipps orders
 # Aggregate total revenue per order (sum of all line items)
 order_level = (
     active_df.groupby("order_number")
@@ -135,20 +150,24 @@ order_level = (
 )
 order_level["revenue_excl_mva"] = order_level["revenue"] / 1.25
 
-# Map actual fees by order_id
+# Map actual Shopify Payments fees by order_id
 order_level["actual_fee"] = order_level["order_id"].map(fee_map)
-# For orders without actual fee data (e.g., Vipps), estimate from spreadsheet rates
+
+# For Vipps orders: use actual Vipps fee rate from Report API
+vipps_actual_rate = vipps_fees_data["avg_rate"] if vipps_fees_data["avg_rate"] > 0 else 0.02
+
 def calc_txn_fee(row):
     if pd.notna(row["actual_fee"]):
         return row["actual_fee"]
-    # Fallback to estimate for orders not in Shopify Payments (e.g., Vipps)
+    # Use actual Vipps rate from Report API
     method = row["payment_method"].lower()
     rev = row["revenue_excl_mva"]
     if "vipps" in method:
-        fee_info = txn_fees.get("vipps", {"rate": 0, "fixed": 0})
+        return rev * vipps_actual_rate
     else:
+        # Fallback for unknown methods
         fee_info = txn_fees.get("kort", {"rate": 0, "fixed": 0})
-    return rev * fee_info["rate"] + fee_info["fixed"]
+        return rev * fee_info["rate"] + fee_info["fixed"]
 
 order_level["txn_fee"] = order_level.apply(calc_txn_fee, axis=1)
 total_txn_fees = order_level["txn_fee"].sum()
@@ -225,14 +244,13 @@ with tab_okonomi:
         kort_rev = order_level[order_level['actual_fee'].notna()]['revenue_excl_mva'].sum()
         vipps_rev = order_level[order_level['actual_fee'].isna()]['revenue_excl_mva'].sum()
         kort_rate = (kort_fees / kort_rev * 100) if kort_rev > 0 else 0
-        vipps_rate = (vipps_fees / vipps_rev * 100) if vipps_rev > 0 else 0
+        vipps_rate = vipps_actual_rate * 100
         txn_data = [
             {"Metode": "Kort (Shopify Payments)", "Kilde": "Faktisk fra API", "Snitt sats": f"{kort_rate:.2f}%", "Totalt gebyr": f"{kort_fees:,.0f} kr"},
-            {"Metode": "Vipps", "Kilde": "Estimat (2%)*", "Snitt sats": f"{vipps_rate:.2f}%", "Totalt gebyr": f"{vipps_fees:,.0f} kr"},
+            {"Metode": "Vipps", "Kilde": "Faktisk fra API", "Snitt sats": f"{vipps_rate:.2f}%", "Totalt gebyr": f"{vipps_fees:,.0f} kr"},
         ]
         st.dataframe(pd.DataFrame(txn_data), use_container_width=True, hide_index=True)
         st.caption(f"Totalt gebyrer: {total_txn_fees:,.0f} kr (snitt {avg_fee_rate:.2f}% av omsetning)")
-        st.caption("*Faktisk Vipps-sats er ~2.66% basert på Vipps Report API. Integrering pågår.")
 
     with breakdown_col3:
         st.markdown("**Sammendrag**")
