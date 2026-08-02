@@ -448,8 +448,10 @@ with tab_trender:
         .reset_index()
         .sort_values("order_date")
     )
-    avg_orders_per_day = daily_orders["bestillinger"].mean() if len(daily_orders) > 0 else 0
-    st.metric("Gjennomsnittlige bestillinger per dag", f"{avg_orders_per_day:.1f}", help="Gjennomsnittlig antall bestillinger på dager med ordredata.")
+    # Average over ALL calendar days (including zero-order days)
+    total_calendar_days = (active_df["order_date"].max() - active_df["order_date"].min()).days + 1
+    avg_orders_per_day = num_orders / total_calendar_days if total_calendar_days > 0 else 0
+    st.metric("Gjennomsnittlige bestillinger per dag", f"{avg_orders_per_day:.1f}", help="Gjennomsnittlig antall bestillinger per kalenderdag (inkludert dager uten bestillinger).")
     fig_daily = px.line(
         daily_orders,
         x="order_date",
