@@ -62,7 +62,7 @@ st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v11"):
+def load_data(_version="v12"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -170,9 +170,22 @@ col4.metric("Varekostnad", f"{total_cogs:,.0f} kr", help="Innkjøpskostnad for v
 col5.metric("Netto resultat", f"{net_profit:,.0f} kr", help="Endelig resultat etter alle kostnader: varekostnad, transaksjonsgebyrer, ordrekostnader, og faste månedlige utgifter.")
 col6.metric("Netto margin", f"{net_margin:.1f}%", help="Netto resultat som prosent av omsetning (eksl. MVA). Viser hvor mye du tjener per krone omsatt etter alle kostnader.")
 
-# --- Cost breakdown ---
-st.divider()
-st.subheader("Kostnadsfordeling", help="Oversikt over alle kostnader fordelt på faste månedlige, per bestilling, og transaksjonsgebyrer.")
+# --- Tabs ---
+tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_bestillinger, tab_om = st.tabs([
+    "💰 Økonomi",
+    "📈 Trender",
+    "🛍️ Produkter",
+    "👥 Kunder",
+    "🏷️ Rabatter",
+    "📦 Frakt",
+    "📊 Break-even",
+    "📋 Bestillinger",
+    "ℹ️ Om",
+])
+
+with tab_okonomi:
+    # --- Cost breakdown ---
+    st.subheader("Kostnadsfordeling", help="Oversikt over alle kostnader fordelt på faste månedlige, per bestilling, og transaksjonsgebyrer.")
 
 breakdown_col1, breakdown_col2, breakdown_col3 = st.columns(3)
 
@@ -198,15 +211,14 @@ with breakdown_col2:
     )
     st.caption(f"{num_orders} bestillinger → {total_per_order_fixed:,.0f} kr totalt")
     st.markdown("**Transaksjonsgebyrer**")
-    txn_data = []
-    for method, info in txn_fees.items():
-        label = "Vipps" if method == "vipps" else "Kort"
-        rate_str = f"{info['rate']*100:.0f}%"
-        if info["fixed"] > 0:
-            rate_str += f" + {info['fixed']:.0f} kr"
-        txn_data.append({"Metode": label, "Sats (estimert)": rate_str})
+    # Show actual average fee rate from Shopify Payments data
+    avg_fee_rate = (total_txn_fees / total_revenue * 100) if total_revenue > 0 else 0
+    txn_data = [
+        {"Metode": "Kort (Shopify Payments)", "Kilde": "Faktisk fra API", "Totalt gebyr": f"{order_level[order_level['actual_fee'].notna()]['txn_fee'].sum():,.0f} kr"},
+        {"Metode": "Vipps (estimert 2%)", "Kilde": "Estimat fra regneark", "Totalt gebyr": f"{order_level[order_level['actual_fee'].isna()]['txn_fee'].sum():,.0f} kr"},
+    ]
     st.dataframe(pd.DataFrame(txn_data), use_container_width=True, hide_index=True)
-    st.caption(f"Totalt gebyrer: {total_txn_fees:,.0f} kr ({orders_with_actual_fees} av {num_orders} med faktiske data fra Shopify Payments)")
+    st.caption(f"Totalt gebyrer: {total_txn_fees:,.0f} kr (snitt {avg_fee_rate:.2f}% av omsetning)")
 
 with breakdown_col3:
     st.markdown("**Sammendrag**")
@@ -358,8 +370,8 @@ with geo_col1:
         payment_summary.rename(columns={
             "payment_method": "Metode",
             "orders": "Bestillinger",
-            "omsetning": "Omsetning (NOK)",
-        }).style.format({"Omsetning (NOK)": "{:,.0f}"}),
+            "omsetning": "Omsetning eksl. MVA (NOK)",
+        }).style.format({"Omsetning eksl. MVA (NOK)": "{:,.0f}"}),
         use_container_width=True,
         hide_index=True,
     )
