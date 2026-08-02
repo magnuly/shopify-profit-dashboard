@@ -220,12 +220,19 @@ with tab_okonomi:
         st.caption(f"{num_orders} bestillinger → {total_per_order_fixed:,.0f} kr totalt")
         st.markdown("**Transaksjonsgebyrer**")
         avg_fee_rate = (total_txn_fees / total_revenue * 100) if total_revenue > 0 else 0
+        kort_fees = order_level[order_level['actual_fee'].notna()]['txn_fee'].sum()
+        vipps_fees = order_level[order_level['actual_fee'].isna()]['txn_fee'].sum()
+        kort_rev = order_level[order_level['actual_fee'].notna()]['revenue_excl_mva'].sum()
+        vipps_rev = order_level[order_level['actual_fee'].isna()]['revenue_excl_mva'].sum()
+        kort_rate = (kort_fees / kort_rev * 100) if kort_rev > 0 else 0
+        vipps_rate = (vipps_fees / vipps_rev * 100) if vipps_rev > 0 else 0
         txn_data = [
-            {"Metode": "Kort (Shopify Payments)", "Kilde": "Faktisk fra API", "Totalt gebyr": f"{order_level[order_level['actual_fee'].notna()]['txn_fee'].sum():,.0f} kr"},
-            {"Metode": "Vipps (estimert 2%)", "Kilde": "Estimat fra regneark", "Totalt gebyr": f"{order_level[order_level['actual_fee'].isna()]['txn_fee'].sum():,.0f} kr"},
+            {"Metode": "Kort (Shopify Payments)", "Kilde": "Faktisk fra API", "Snitt sats": f"{kort_rate:.2f}%", "Totalt gebyr": f"{kort_fees:,.0f} kr"},
+            {"Metode": "Vipps", "Kilde": "Estimat (2%)*", "Snitt sats": f"{vipps_rate:.2f}%", "Totalt gebyr": f"{vipps_fees:,.0f} kr"},
         ]
         st.dataframe(pd.DataFrame(txn_data), use_container_width=True, hide_index=True)
         st.caption(f"Totalt gebyrer: {total_txn_fees:,.0f} kr (snitt {avg_fee_rate:.2f}% av omsetning)")
+        st.caption("*Faktisk Vipps-sats er ~2.66% basert på Vipps Report API. Integrering pågår.")
 
     with breakdown_col3:
         st.markdown("**Sammendrag**")
