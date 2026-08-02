@@ -51,6 +51,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
     for order in orders:
         order_number = order["order_number"]
         order_date = order["created_at"][:10]
+        order_created_at = order["created_at"]
         currency = order["currency"]
         financial_status = order.get("financial_status", "")
         customer_email = order.get("email", "")
@@ -105,6 +106,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                 {
                     "order_number": order_number,
                     "order_date": order_date,
+                    "order_created_at": order_created_at,
                     "product_key": product_key,
                     "product_title": title,
                     "variant_title": variant_title,

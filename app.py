@@ -55,7 +55,7 @@ SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v7"):
+def load_data(_version="v8"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -420,6 +420,72 @@ with disc_col2:
         use_container_width=True,
         hide_index=True,
     )
+
+st.divider()
+
+# --- Kjøpsmønster (buying patterns) ---
+st.subheader("Kjøpsmønster", help="Når handler kundene? Fordeling av bestillinger på ukedager og tid på døgnet.")
+
+# Parse full timestamp for time analysis
+order_times = active_df.drop_duplicates(subset="order_number")[["order_number", "order_created_at"]].copy()
+order_times["timestamp"] = pd.to_datetime(order_times["order_created_at"])
+order_times["weekday"] = order_times["timestamp"].dt.dayofweek
+order_times["weekday_name"] = order_times["timestamp"].dt.day_name()
+order_times["hour"] = order_times["timestamp"].dt.hour
+
+# Norwegian day names in correct order
+day_map = {0: "Mandag", 1: "Tirsdag", 2: "Onsdag", 3: "Torsdag", 4: "Fredag", 5: "Lørdag", 6: "Søndag"}
+order_times["ukedag"] = order_times["weekday"].map(day_map)
+
+pattern_col1, pattern_col2 = st.columns(2)
+
+with pattern_col1:
+    st.markdown("**Bestillinger per ukedag**")
+    weekday_counts = (
+        order_times.groupby(["weekday", "ukedag"])
+        .agg(bestillinger=("order_number", "count"))
+        .reset_index()
+        .sort_values("weekday")
+    )
+    fig_wd = px.bar(
+        weekday_counts,
+        x="ukedag",
+        y="bestillinger",
+        labels={"ukedag": "", "bestillinger": "Antall bestillinger"},
+        color="bestillinger",
+        color_continuous_scale=["#85c1e9", "#2471a3"],
+    )
+    fig_wd.update_layout(showlegend=False, coloraxis_showscale=False)
+    st.plotly_chart(fig_wd, use_container_width=True)
+
+with pattern_col2:
+    st.markdown("**Bestillinger per tid på døgnet**")
+    hour_counts = (
+        order_times.groupby("hour")
+        .agg(bestillinger=("order_number", "count"))
+        .reset_index()
+    )
+    # Fill missing hours with 0
+    all_hours = pd.DataFrame({"hour": range(24)})
+    hour_counts = all_hours.merge(hour_counts, on="hour", how="left").fillna(0)
+    hour_counts["bestillinger"] = hour_counts["bestillinger"].astype(int)
+    hour_counts["klokkeslett"] = hour_counts["hour"].apply(lambda h: f"{h:02d}:00")
+
+    fig_hr = px.bar(
+        hour_counts,
+        x="klokkeslett",
+        y="bestillinger",
+        labels={"klokkeslett": "", "bestillinger": "Antall bestillinger"},
+        color="bestillinger",
+        color_continuous_scale=["#f9e79f", "#e74c3c"],
+    )
+    fig_hr.update_layout(showlegend=False, coloraxis_showscale=False)
+    st.plotly_chart(fig_hr, use_container_width=True)
+
+# Peak summary
+peak_day = weekday_counts.loc[weekday_counts["bestillinger"].idxmax(), "ukedag"]
+peak_hour = hour_counts.loc[hour_counts["bestillinger"].idxmax(), "hour"]
+st.caption(f"Mest populær dag: **{peak_day}** • Mest populær tid: **{int(peak_hour):02d}:00–{int(peak_hour)+1:02d}:00**")
 
 st.divider()
 
