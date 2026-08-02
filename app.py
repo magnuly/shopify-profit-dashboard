@@ -14,13 +14,6 @@ if st.sidebar.button("🔄 Oppdater data"):
     st.rerun()
 st.sidebar.caption("Data oppdateres automatisk hver time.")
 
-# --- Sidebar links ---
-st.sidebar.divider()
-st.sidebar.markdown("**Hurtiglenker**")
-st.sidebar.markdown(f"[🛒 Shopify Admin](https://admin.shopify.com/store/{SHOP})")
-st.sidebar.markdown("[🌐 nariz.no](https://nariz.no)")
-st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID})")
-
 # --- Product profit calculator ---
 st.sidebar.divider()
 st.sidebar.title("🧮 Produktkalkulator")
@@ -58,6 +51,13 @@ CLIENT_ID = shopify_cfg["client_id"]
 CLIENT_SECRET = shopify_cfg["client_secret"]
 SPREADSHEET_ID = google_cfg["spreadsheet_id"]
 SERVICE_ACCOUNT_INFO = dict(google_cfg["service_account"])
+
+# --- Sidebar links (after secrets loaded) ---
+st.sidebar.divider()
+st.sidebar.markdown("**Hurtiglenker**")
+st.sidebar.markdown(f"[🛒 Shopify Admin](https://admin.shopify.com/store/{SHOP})")
+st.sidebar.markdown("[🌐 nariz.no](https://nariz.no)")
+st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID})")
 
 
 # --- Data loading (cached) ---
