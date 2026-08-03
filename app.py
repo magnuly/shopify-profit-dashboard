@@ -199,7 +199,7 @@ col5.metric("Netto resultat", f"{net_profit:,.0f} kr", help="Endelig resultat et
 col6.metric("Netto margin", f"{net_margin:.1f}%", help="Netto resultat som prosent av omsetning (eksl. MVA). Viser hvor mye du tjener per krone omsatt etter alle kostnader.")
 
 # --- Tabs ---
-tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_bestillinger, tab_om = st.tabs([
+tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_om = st.tabs([
     "💰 Økonomi",
     "📈 Trender",
     "🛍️ Produkter",
@@ -207,6 +207,7 @@ tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, ta
     "🏷️ Rabatter",
     "📦 Frakt",
     "📊 Break-even",
+    "🏆 Rekorder",
     "📋 Bestillinger",
     "ℹ️ Om",
 ])
@@ -897,6 +898,105 @@ with tab_breakeven:
     st.plotly_chart(fig_break_even, use_container_width=True)
 
 
+
+
+with tab_rekorder:
+    st.subheader("🏆 Rekorder", help="De beste prestasjonene – dager, uker, produkter og bestillinger som skiller seg ut.")
+
+    # Best day by revenue
+    daily_rev = (
+        active_df.groupby("order_date")
+        .agg(omsetning=("revenue_excl_mva", "sum"), bestillinger=("order_number", "nunique"))
+        .reset_index()
+    )
+    best_day_rev = daily_rev.loc[daily_rev["omsetning"].idxmax()]
+    best_day_orders = daily_rev.loc[daily_rev["bestillinger"].idxmax()]
+
+    # Best week by revenue
+    weekly_rev = active_df.copy()
+    weekly_rev["week"] = weekly_rev["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+    weekly_agg = (
+        weekly_rev.groupby("week")
+        .agg(omsetning=("revenue_excl_mva", "sum"), bestillinger=("order_number", "nunique"), fortjeneste=("profit", "sum"))
+        .reset_index()
+    )
+    best_week_rev = weekly_agg.loc[weekly_agg["omsetning"].idxmax()]
+    best_week_profit = weekly_agg.loc[weekly_agg["fortjeneste"].idxmax()]
+    best_week_orders = weekly_agg.loc[weekly_agg["bestillinger"].idxmax()]
+
+    # Best product by revenue, profit, and quantity
+    product_agg = (
+        active_df.groupby("product_title")
+        .agg(
+            omsetning=("revenue_excl_mva", "sum"),
+            fortjeneste=("profit", "sum"),
+            antall_solgt=("quantity", "sum"),
+        )
+        .reset_index()
+    )
+    best_product_rev = product_agg.loc[product_agg["omsetning"].idxmax()]
+    best_product_profit = product_agg.loc[product_agg["fortjeneste"].idxmax()]
+    best_product_qty = product_agg.loc[product_agg["antall_solgt"].idxmax()]
+
+    # Biggest single order
+    order_agg = (
+        active_df.groupby("order_number")
+        .agg(omsetning=("revenue_excl_mva", "sum"), order_date=("order_date", "first"))
+        .reset_index()
+    )
+    biggest_order = order_agg.loc[order_agg["omsetning"].idxmax()]
+
+    # Best customer (most orders)
+    if "customer_email" in active_df.columns:
+        customer_agg = (
+            active_df[active_df["customer_email"] != ""]
+            .groupby("customer_email")
+            .agg(bestillinger=("order_number", "nunique"), omsetning=("revenue_excl_mva", "sum"))
+            .reset_index()
+            .sort_values("bestillinger", ascending=False)
+        )
+        best_customer = customer_agg.iloc[0] if len(customer_agg) > 0 else None
+    else:
+        best_customer = None
+
+    # Display records
+    st.markdown("### 📅 Beste dag")
+    rec_col1, rec_col2 = st.columns(2)
+    rec_col1.metric("Høyest omsetning (dag)", f"{best_day_rev['omsetning']:,.0f} kr", help="Dagen med høyest omsetning eksl. MVA.")
+    rec_col1.caption(f"{best_day_rev['order_date'].strftime('%d.%m.%Y')}")
+    rec_col2.metric("Flest bestillinger (dag)", f"{int(best_day_orders['bestillinger'])}", help="Dagen med flest unike bestillinger.")
+    rec_col2.caption(f"{best_day_orders['order_date'].strftime('%d.%m.%Y')}")
+
+    st.markdown("### 📆 Beste uke")
+    rec_col3, rec_col4, rec_col5 = st.columns(3)
+    rec_col3.metric("Høyest omsetning (uke)", f"{best_week_rev['omsetning']:,.0f} kr")
+    rec_col3.caption(f"Uke fra {best_week_rev['week'].strftime('%d.%m.%Y')}")
+    rec_col4.metric("Høyest fortjeneste (uke)", f"{best_week_profit['fortjeneste']:,.0f} kr")
+    rec_col4.caption(f"Uke fra {best_week_profit['week'].strftime('%d.%m.%Y')}")
+    rec_col5.metric("Flest bestillinger (uke)", f"{int(best_week_orders['bestillinger'])}")
+    rec_col5.caption(f"Uke fra {best_week_orders['week'].strftime('%d.%m.%Y')}")
+
+    st.markdown("### 🛍️ Beste produkt")
+    rec_col6, rec_col7, rec_col8 = st.columns(3)
+    rec_col6.metric("Høyest omsetning", f"{best_product_rev['omsetning']:,.0f} kr")
+    rec_col6.caption(f"{best_product_rev['product_title']}")
+    rec_col7.metric("Høyest fortjeneste", f"{best_product_profit['fortjeneste']:,.0f} kr")
+    rec_col7.caption(f"{best_product_profit['product_title']}")
+    rec_col8.metric("Mest solgt (antall)", f"{int(best_product_qty['antall_solgt'])}")
+    rec_col8.caption(f"{best_product_qty['product_title']}")
+
+    st.markdown("### 🧾 Største bestilling")
+    rec_col9, rec_col10 = st.columns(2)
+    rec_col9.metric("Største ordre (omsetning)", f"{biggest_order['omsetning']:,.0f} kr")
+    rec_col9.caption(f"Ordre #{int(biggest_order['order_number'])} – {biggest_order['order_date'].strftime('%d.%m.%Y')}")
+
+    if best_customer is not None:
+        st.markdown("### 👑 Beste kunde")
+        rec_col11, rec_col12 = st.columns(2)
+        rec_col11.metric("Flest bestillinger", f"{int(best_customer['bestillinger'])}")
+        rec_col11.caption(f"{best_customer['customer_email']}")
+        rec_col12.metric("Total omsetning", f"{best_customer['omsetning']:,.0f} kr")
+        rec_col12.caption(f"{best_customer['customer_email']}")
 
 
 with tab_bestillinger:
