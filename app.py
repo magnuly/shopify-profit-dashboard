@@ -68,7 +68,7 @@ st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v14"):
+def load_data(_version="v15"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
