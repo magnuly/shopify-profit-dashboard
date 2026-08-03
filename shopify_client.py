@@ -112,7 +112,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
 
         # Manual overrides for discount code attribution
         DISCOUNT_CODE_OVERRIDES = {
-            1019: "kira30",
+            1019: "KIRA30",
         }
         if order_number in DISCOUNT_CODE_OVERRIDES:
             discount_code = DISCOUNT_CODE_OVERRIDES[order_number]
