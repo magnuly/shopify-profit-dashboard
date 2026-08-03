@@ -64,6 +64,7 @@ st.sidebar.markdown("**Hurtiglenker**")
 st.sidebar.markdown(f"[🛒 Shopify Admin](https://admin.shopify.com/store/{SHOP})")
 st.sidebar.markdown("[🌐 nariz.no](https://nariz.no)")
 st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID})")
+st.sidebar.markdown("[💳 Vipps Bedrift](https://portal.vipps.no)")
 
 
 # --- Data loading (cached) ---
