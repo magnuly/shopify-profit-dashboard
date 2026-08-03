@@ -68,7 +68,7 @@ st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v13"):
+def load_data(_version="v14"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -1000,6 +1000,43 @@ with tab_rekorder:
 
 
 with tab_bestillinger:
+    # --- Unfulfilled orders alert ---
+    unfulfilled = merged_df[
+        (merged_df["fulfillment_status"] == "unfulfilled") & (~merged_df["is_refunded"])
+    ]
+    unfulfilled_orders = unfulfilled.drop_duplicates(subset="order_number")
+    num_unfulfilled = len(unfulfilled_orders)
+
+    if num_unfulfilled > 0:
+        st.markdown(
+            f"<h3 style='color:#e74c3c;'>📦 {num_unfulfilled} bestilling(er) ikke sendt!</h3>",
+            unsafe_allow_html=True,
+        )
+        unfulfilled_summary = (
+            unfulfilled.groupby(["order_number", "order_date", "city"])
+            .agg(
+                omsetning=("revenue_excl_mva", "sum"),
+                produkter=("product_key", lambda x: ", ".join(x)),
+            )
+            .reset_index()
+            .sort_values("order_date", ascending=False)
+            .rename(columns={
+                "order_number": "Ordre",
+                "order_date": "Dato",
+                "city": "By",
+                "omsetning": "Omsetning (NOK)",
+                "produkter": "Produkter",
+            })
+        )
+        st.dataframe(
+            unfulfilled_summary.style.format({"Omsetning (NOK)": "{:,.0f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.divider()
+    else:
+        st.success("✅ Alle bestillinger er sendt!")
+
     st.subheader("Alle bestillinger", help="Oversikt over alle bestillinger med omsetning, varekostnad og fortjeneste. Refunderte bestillinger er ekskludert.")
     orders_summary = (
         active_df.groupby(["order_number", "order_date", "financial_status"])

@@ -92,6 +92,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         order_created_at = order["created_at"]
         currency = order["currency"]
         financial_status = order.get("financial_status", "")
+        fulfillment_status = order.get("fulfillment_status") or "unfulfilled"
         customer_email = order.get("email", "")
 
         # Payment method (order-level)
@@ -173,6 +174,7 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
                     "discount_code": discount_code,
                     "currency": currency,
                     "financial_status": financial_status,
+                    "fulfillment_status": fulfillment_status,
                     "product_id": li.get("product_id"),
                     "variant_id": li.get("variant_id"),
                     "payment_method": payment_method,
