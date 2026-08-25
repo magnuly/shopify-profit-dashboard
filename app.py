@@ -997,7 +997,7 @@ with tab_rekorder:
         repeat_cols = st.columns(3)
         for i, (_, cust) in enumerate(top_repeat.iterrows()):
             with repeat_cols[i]:
-                st.metric(f"#{i+1} — {int(cust['bestillinger'])} bestillinger", f"{cust['omsetning']:,.0f} kr")
+                st.metric(f"#{i+1} — {cust['omsetning']:,.0f} kr", f"{int(cust['bestillinger'])} bestillinger")
                 st.caption(f"{cust['customer_email']}")
 
     if top_spenders is not None and len(top_spenders) > 0:
@@ -1005,7 +1005,7 @@ with tab_rekorder:
         spend_cols = st.columns(3)
         for i, (_, cust) in enumerate(top_spenders.iterrows()):
             with spend_cols[i]:
-                st.metric(f"#{i+1} — {cust['omsetning']:,.0f} kr", f"{int(cust['bestillinger'])} bestillinger")
+                st.metric(f"#{i+1} — {int(cust['bestillinger'])} bestillinger", f"{cust['omsetning']:,.0f} kr")
                 st.caption(f"{cust['customer_email']}")
 
 
