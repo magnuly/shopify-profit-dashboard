@@ -956,9 +956,9 @@ with tab_rekorder:
             .reset_index()
             .sort_values("bestillinger", ascending=False)
         )
-        best_customer = customer_agg.iloc[0] if len(customer_agg) > 0 else None
+        top_customers = customer_agg.head(3) if len(customer_agg) >= 3 else customer_agg
     else:
-        best_customer = None
+        top_customers = None
 
     # Display records
     st.markdown("### 📅 Beste dag")
@@ -991,13 +991,13 @@ with tab_rekorder:
     rec_col9.metric("Største ordre (omsetning)", f"{biggest_order['omsetning']:,.0f} kr")
     rec_col9.caption(f"Ordre #{int(biggest_order['order_number'])} – {biggest_order['order_date'].strftime('%d.%m.%Y')}")
 
-    if best_customer is not None:
-        st.markdown("### 👑 Beste kunde")
-        rec_col11, rec_col12 = st.columns(2)
-        rec_col11.metric("Flest bestillinger", f"{int(best_customer['bestillinger'])}")
-        rec_col11.caption(f"{best_customer['customer_email']}")
-        rec_col12.metric("Total omsetning", f"{best_customer['omsetning']:,.0f} kr")
-        rec_col12.caption(f"{best_customer['customer_email']}")
+    if top_customers is not None and len(top_customers) > 0:
+        st.markdown("### 👑 Topp 3 beste kunder")
+        top_cols = st.columns(3)
+        for i, (_, cust) in enumerate(top_customers.iterrows()):
+            with top_cols[i]:
+                st.metric(f"#{i+1} — {int(cust['bestillinger'])} bestillinger", f"{cust['omsetning']:,.0f} kr")
+                st.caption(f"{cust['customer_email']}")
 
 
 with tab_bestillinger:
