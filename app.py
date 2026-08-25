@@ -947,18 +947,19 @@ with tab_rekorder:
     )
     biggest_order = order_agg.loc[order_agg["omsetning"].idxmax()]
 
-    # Best customer (most orders)
+    # Top customers
     if "customer_email" in active_df.columns:
         customer_agg = (
             active_df[active_df["customer_email"] != ""]
             .groupby("customer_email")
             .agg(bestillinger=("order_number", "nunique"), omsetning=("revenue_excl_mva", "sum"))
             .reset_index()
-            .sort_values("bestillinger", ascending=False)
         )
-        top_customers = customer_agg.head(3) if len(customer_agg) >= 3 else customer_agg
+        top_repeat = customer_agg.sort_values("bestillinger", ascending=False).head(3)
+        top_spenders = customer_agg.sort_values("omsetning", ascending=False).head(3)
     else:
-        top_customers = None
+        top_repeat = None
+        top_spenders = None
 
     # Display records
     st.markdown("### 📅 Beste dag")
@@ -991,12 +992,20 @@ with tab_rekorder:
     rec_col9.metric("Største ordre (omsetning)", f"{biggest_order['omsetning']:,.0f} kr")
     rec_col9.caption(f"Ordre #{int(biggest_order['order_number'])} – {biggest_order['order_date'].strftime('%d.%m.%Y')}")
 
-    if top_customers is not None and len(top_customers) > 0:
-        st.markdown("### 👑 Topp 3 beste kunder")
-        top_cols = st.columns(3)
-        for i, (_, cust) in enumerate(top_customers.iterrows()):
-            with top_cols[i]:
+    if top_repeat is not None and len(top_repeat) > 0:
+        st.markdown("### 🔁 Topp 3 mest gjentakende kunder")
+        repeat_cols = st.columns(3)
+        for i, (_, cust) in enumerate(top_repeat.iterrows()):
+            with repeat_cols[i]:
                 st.metric(f"#{i+1} — {int(cust['bestillinger'])} bestillinger", f"{cust['omsetning']:,.0f} kr")
+                st.caption(f"{cust['customer_email']}")
+
+    if top_spenders is not None and len(top_spenders) > 0:
+        st.markdown("### 💰 Topp 3 kunder som har brukt mest")
+        spend_cols = st.columns(3)
+        for i, (_, cust) in enumerate(top_spenders.iterrows()):
+            with spend_cols[i]:
+                st.metric(f"#{i+1} — {cust['omsetning']:,.0f} kr", f"{int(cust['bestillinger'])} bestillinger")
                 st.caption(f"{cust['customer_email']}")
 
 
