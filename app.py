@@ -323,11 +323,11 @@ with tab_okonomi:
             key="verditap",
         )
         utstyr = st.number_input(
-            "Utstyr og inventar (NOK)",
+            "Utstyr og inventar, eksl. MVA (NOK)",
             min_value=0,
             value=0,
             step=1000,
-            help="Innkjøp av utstyr, datamaskiner, inventar. Avskrives med 30% per år (saldoavskrivning gruppe A).",
+            help="Innkjøpspris ekskl. MVA for utstyr, datamaskiner, inventar. MVA på utstyr refunderes via MVA-oppgjøret og er ikke en kostnad. Avskrives med 30% per år (saldoavskrivning gruppe A).",
             key="utstyr",
         )
         fremfort_underskudd = st.number_input(
