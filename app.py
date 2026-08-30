@@ -314,13 +314,13 @@ with tab_okonomi:
         st.markdown(f"**Driftskostnader:** {driftskostnader:,.0f} kr")
         st.caption(f"Basert på faste månedlige kostnader ({overhead['fixed_monthly_total']:,.0f} kr/mnd × {months_covered:.1f} mnd)")
 
-        varelager_usolgt = st.number_input(
-            "Usolgt varelager ved årets slutt (NOK)",
+        verditap_varelager = st.number_input(
+            "Verditap på usolgt varelager (NOK)",
             min_value=0,
             value=0,
             step=1000,
-            help="Verdi av varer som ikke er solgt ennå. Disse er IKKE fradragsberettiget — de er en eiendel på balansen. Varekostnad for solgte varer er allerede trukket fra i dashboardet (COGS).",
-            key="varelager",
+            help="Nedskrivning av varelager som har tapt verdi (skadet, utgått, lavere markedspris). Fradragsberettiget. Varer som ikke har tapt verdi gir ikke fradrag.",
+            key="verditap",
         )
         utstyr = st.number_input(
             "Utstyr og inventar (NOK)",
@@ -335,16 +335,13 @@ with tab_okonomi:
             min_value=0,
             value=0,
             step=1000,
-            help="Underskudd fra tidligere regnskapsår som kan trekkes fra fremtidig overskudd. Oppdater basert på fjorårets skattemelding.",
+            help="Underskudd fra tidligere regnskapsår som kan trekkes fra fremtidig overskudd. Brukes først når bedriften har gått med tap et tidligere år. Oppdater basert på fjorårets skattemelding.",
             key="fremfort",
         )
 
         # Calculate deductions
-        # Note: driftskostnader are already deducted in net_profit (as fixed overhead)
-        # So we only add utstyr_avskrivning and fremført underskudd as ADDITIONAL deductions
         utstyr_avskrivning = utstyr * 0.30  # 30% saldoavskrivning gruppe A
-        total_fradrag = utstyr_avskrivning + fremfort_underskudd
-        # Note: varelager is NOT deductible, and COGS is already in the dashboard
+        total_fradrag = verditap_varelager + utstyr_avskrivning + fremfort_underskudd
 
         tax_rate = 0.22
         taxable_income = max(0, net_profit - total_fradrag)
@@ -353,12 +350,13 @@ with tab_okonomi:
 
         # Remaining carryforward for next year
         unused_deduction = max(0, total_fradrag - max(0, net_profit))
-        utstyr_restverdi = utstyr - utstyr_avskrivning  # Remaining book value for next year
+        utstyr_restverdi = utstyr - utstyr_avskrivning
 
     with skatt_col2:
         st.markdown("**Skatteberegning**")
         skatt_data = [
             {"Post": "Resultat før skatt (etter driftskostnader)", "Beløp (NOK)": net_profit},
+            {"Post": "Verditap varelager (fradrag)", "Beløp (NOK)": -verditap_varelager},
             {"Post": f"Avskrivning utstyr (30% av {utstyr:,.0f})", "Beløp (NOK)": -utstyr_avskrivning},
             {"Post": "Fremførbart underskudd", "Beløp (NOK)": -fremfort_underskudd},
             {"Post": "Skattbart overskudd", "Beløp (NOK)": taxable_income},
@@ -379,8 +377,6 @@ with tab_okonomi:
             st.info(f"💡 **{unused_deduction:,.0f} kr** i ubrukt fradrag kan fremføres til neste år.")
         if utstyr > 0:
             st.caption(f"Utstyr restverdi neste år: {utstyr_restverdi:,.0f} kr (avskrives videre med 30%)")
-        if varelager_usolgt > 0:
-            st.caption(f"Usolgt varelager ({varelager_usolgt:,.0f} kr) er en eiendel — ikke fradrag. Blir COGS når varene selges.")
 
     # --- Projected year result ---
     st.divider()
