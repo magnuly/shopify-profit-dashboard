@@ -1228,21 +1228,37 @@ with tab_om:
 │   2. Henter produktpriser fra Google Sheets                     │
 │   3. Henter faktiske gebyrer fra Shopify Payments API           │
 │   4. Henter faktiske gebyrer fra Vipps Report API               │
-│   5. Kobler sammen på produktnavn                               │
-│   6. Beregner: Omsetning − MVA − Varekostnad − Gebyrer         │
+│   5. Henter QR-skanningsstatistikk fra Render                   │
+│   6. Kobler sammen på produktnavn                               │
+│   7. Beregner: Omsetning − MVA − Varekostnad − Gebyrer         │
 │      − Ordrekostnader − Faste kostnader = Netto resultat        │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
 
 Tilleggs-APIer:
-┌─────────────────────────┐    ┌─────────────────────────┐
-│  Shopify Payments API   │    │    Vipps Report API     │
-│  (Balance Transactions) │    │  (Ledger fees/funds)    │
-│                         │    │                         │
-│  → Faktiske kortgebyrer │    │  → Faktiske Vipps-      │
-│    per transaksjon      │    │    gebyrer per dag      │
-│  → Snitt ~2.35%         │    │  → Snitt ~2.66%         │
-└─────────────────────────┘    └─────────────────────────┘
+┌─────────────────────────┐    ┌─────────────────────────┐    ┌─────────────────────────┐
+│  Shopify Payments API   │    │    Vipps Report API     │    │  QR Redirect Tracker    │
+│  (Balance Transactions) │    │  (Ledger fees/funds)    │    │  (Render)               │
+│                         │    │                         │    │                         │
+│  → Faktiske kortgebyrer │    │  → Faktiske Vipps-      │    │  → Skanninger per       │
+│    per transaksjon      │    │    gebyrer per dag      │    │    dag/uke/måned         │
+│  → Snitt ~2.35%         │    │  → Snitt ~2.66%         │    │  → Unike enheter        │
+│                         │    │                         │    │  → Gjentatte besøk      │
+└─────────────────────────┘    └─────────────────────────┘    └─────────────────────────┘
+
+QR-kode sporing:
+┌───────────┐     ┌──────────────────────────┐     ┌─────────────┐
+│  QR-kode  │────▶│  qr-nariz.onrender.com   │────▶│  nariz.no   │
+│  (fysisk) │     │                          │     │  (nettbutikk)│
+└───────────┘     │  • Logger IP, tidspunkt,  │     └─────────────┘
+                  │    nettleser (user agent) │
+                  │  • Fingerprint: IP + UA   │
+                  │    for unik enhet         │
+                  │  • SQLite database        │
+                  │  • Self-ping hver 10 min  │
+                  │    (unngår Render-søvn)   │
+                  │  • /stats/json API        │
+                  └──────────────────────────┘
 ```
     """)
 
@@ -1253,6 +1269,7 @@ Tilleggs-APIer:
 - **Shopify Payments API** — Faktiske transaksjonsgebyrer for kortbetalinger. Hentes fra balance transactions endpoint.
 - **Vipps Report API** — Faktiske transaksjonsgebyrer for Vipps-betalinger. Hentes fra ledger fees endpoint per dag.
 - **Google Sheets** — Tre faner med kostnadsdata som du vedlikeholder manuelt.
+- **QR Redirect Tracker (Render)** — Skanningsstatistikk fra QR-koden. Hentes fra `qr-nariz.onrender.com/stats/json`. Sporer antall skanninger, unike enheter (via IP + user agent fingerprint), og gjentatte besøk. Data caches i 5 minutter.
 
 **Beregningsflyt:**
 
@@ -1283,6 +1300,13 @@ Tilleggs-APIer:
 - Endringer i Google Sheets reflekteres ved neste oppdatering.
 - Nye bestillinger fra Shopify vises automatisk.
 - Vipps-gebyrer oppdateres daglig (fees publiseres med 1-2 dagers forsinkelse).
+- QR-skanningsdata caches i 5 minutter og hentes fra Render-tjenesten.
+
+**QR-kode sporing:**
+- QR-koden peker til `qr-nariz.onrender.com`, som logger skanningen og videresender til `nariz.no`.
+- Hver skanning lagres med tidspunkt, IP-adresse og nettleser (user agent) i en SQLite-database på Render.
+- Unike enheter identifiseres ved å kombinere IP-adresse og user agent. Dette er ikke perfekt — samme person på ulike nettverk telles som to enheter, og flere personer på samme nettverk med lik nettleser telles som én.
+- Tjenesten pinger seg selv hvert 10. minutt for å unngå at Render free-tier legger seg i dvale.
         """)
 
     with st.expander("Faner i dashboardet"):
