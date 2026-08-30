@@ -188,11 +188,7 @@ total_fixed_overhead = overhead["fixed_monthly_total"] * months_covered
 net_profit = gross_profit - total_per_order_costs - total_fixed_overhead
 net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 
-# Tax calculation (22% selskapsskatt for AS)
-STARTUP_COSTS = 150_000  # Oppstartskostnader (varer og utstyr før salg)
-taxable_income = max(0, net_profit - STARTUP_COSTS)
-estimated_tax = taxable_income * 0.22
-profit_after_tax = net_profit - estimated_tax
+# Tax is calculated in the Skatt section of Økonomi tab (adjustable)
 
 # --- Header ---
 st.title("📊 Lønnsomhetsdashboard")
@@ -205,8 +201,8 @@ col1.metric("Omsetning (inkl. MVA)", f"{total_revenue_incl_mva:,.0f} kr", help="
 col2.metric("MVA (25%)", f"{total_mva:,.0f} kr", help="Merverdiavgift som skal betales til staten. 25% av omsetningen ekskl. MVA.")
 col3.metric("Omsetning (eksl. MVA)", f"{total_revenue:,.0f} kr", help="Omsetning etter at MVA er trukket fra. Dette er det du faktisk sitter igjen med før kostnader.")
 col4.metric("Varekostnad", f"{total_cogs:,.0f} kr", help="Innkjøpskostnad for varene (COGS). Hentet fra Google Sheets-arket 'Produktpriser'.")
-col5.metric("Resultat før skatt", f"{net_profit:,.0f} kr", help="Resultat etter alle kostnader, men før selskapsskatt (22%).")
-col6.metric("Resultat etter skatt", f"{profit_after_tax:,.0f} kr", help="Resultat etter 22% selskapsskatt. Oppstartskostnader (150 000 kr) er trukket fra skattbart overskudd.")
+col5.metric("Resultat før skatt", f"{net_profit:,.0f} kr", help="Resultat etter alle kostnader, men før selskapsskatt (22%). Se Skatt-seksjon under Økonomi-fanen for detaljer.")
+col6.metric("Netto margin", f"{net_margin:.1f}%", help="Resultat før skatt som prosent av omsetning (eksl. MVA).")
 
 # --- Tabs ---
 tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_qr, tab_om = st.tabs([
@@ -280,10 +276,6 @@ with tab_okonomi:
             {"Post": f"Ordrekostnader ({num_orders} stk)", "Beløp (NOK)": -total_per_order_fixed},
             {"Post": f"Faste kostnader ({months_covered:.1f} mnd)", "Beløp (NOK)": -total_fixed_overhead},
             {"Post": "Resultat før skatt", "Beløp (NOK)": net_profit},
-            {"Post": "Oppstartskostnader (fradrag)", "Beløp (NOK)": -min(STARTUP_COSTS, net_profit) if net_profit > 0 else 0},
-            {"Post": "Skattbart overskudd", "Beløp (NOK)": taxable_income},
-            {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -estimated_tax},
-            {"Post": "Resultat etter skatt", "Beløp (NOK)": profit_after_tax},
         ]
         st.dataframe(
             pd.DataFrame(summary_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
@@ -307,6 +299,53 @@ with tab_okonomi:
             .reset_index(),
             use_container_width=True,
         )
+
+    # --- Skatt ---
+    st.divider()
+    st.subheader("Skatt", help="Beregning av selskapsskatt (22%) for AS. Fremførbart underskudd og oppstartskostnader kan justeres.")
+
+    skatt_col1, skatt_col2 = st.columns(2)
+
+    with skatt_col1:
+        st.markdown("**Juster skattefradrag**")
+        startup_costs = st.number_input(
+            "Oppstartskostnader / fremførbart underskudd (NOK)",
+            min_value=0,
+            value=150_000,
+            step=1000,
+            help="Oppstartskostnader og fremførbart underskudd fra tidligere år. Trekkes fra skattbart overskudd. Oppdater dette årlig basert på regnskap.",
+            key="startup_costs",
+        )
+        tax_rate = 0.22
+        taxable_income = max(0, net_profit - startup_costs)
+        estimated_tax = taxable_income * tax_rate
+        profit_after_tax = net_profit - estimated_tax
+
+        # Calculate remaining carryforward
+        remaining_carryforward = max(0, startup_costs - max(0, net_profit))
+
+        skatt_data = [
+            {"Post": "Resultat før skatt", "Beløp (NOK)": net_profit},
+            {"Post": "Fradrag (oppstart/underskudd)", "Beløp (NOK)": -min(startup_costs, max(0, net_profit))},
+            {"Post": "Skattbart overskudd", "Beløp (NOK)": taxable_income},
+            {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -estimated_tax},
+            {"Post": "Resultat etter skatt", "Beløp (NOK)": profit_after_tax},
+        ]
+        st.dataframe(
+            pd.DataFrame(skatt_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    with skatt_col2:
+        st.markdown("**Skatteoversikt**")
+        st.metric("Resultat før skatt", f"{net_profit:,.0f} kr")
+        st.metric("Estimert selskapsskatt", f"{estimated_tax:,.0f} kr")
+        st.metric("Resultat etter skatt", f"{profit_after_tax:,.0f} kr")
+        if remaining_carryforward > 0:
+            st.info(f"💡 Du har **{remaining_carryforward:,.0f} kr** i fremførbart underskudd som kan brukes mot fremtidig overskudd.")
+        else:
+            st.caption("Oppstartskostnader er fullt utnyttet mot årets overskudd.")
 
     # --- Projected year result ---
     st.divider()
@@ -346,7 +385,7 @@ with tab_okonomi:
         ytd_net = net_profit  # Already calculated above
 
         # Projected tax
-        projected_taxable = max(0, projected_net_profit - STARTUP_COSTS)
+        projected_taxable = max(0, projected_net_profit - startup_costs)
         projected_tax = projected_taxable * 0.22
         projected_after_tax = projected_net_profit - projected_tax
 
@@ -366,7 +405,7 @@ with tab_okonomi:
             {"Post": f"Projisert ordrekostnader ({projected_orders:.0f} stk)", "Beløp (NOK)": -projected_per_order_costs},
             {"Post": "Faste kostnader (12 mnd)", "Beløp (NOK)": -projected_fixed_overhead},
             {"Post": "Resultat før skatt", "Beløp (NOK)": projected_net_profit},
-            {"Post": "Oppstartskostnader (fradrag)", "Beløp (NOK)": -min(STARTUP_COSTS, max(0, projected_net_profit))},
+            {"Post": "Oppstartskostnader (fradrag)", "Beløp (NOK)": -min(startup_costs, max(0, projected_net_profit))},
             {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -projected_tax},
             {"Post": "Resultat etter skatt", "Beløp (NOK)": projected_after_tax},
         ]
