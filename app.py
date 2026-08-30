@@ -188,6 +188,12 @@ total_fixed_overhead = overhead["fixed_monthly_total"] * months_covered
 net_profit = gross_profit - total_per_order_costs - total_fixed_overhead
 net_margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 0
 
+# Tax calculation (22% selskapsskatt for AS)
+STARTUP_COSTS = 150_000  # Oppstartskostnader (varer og utstyr før salg)
+taxable_income = max(0, net_profit - STARTUP_COSTS)
+estimated_tax = taxable_income * 0.22
+profit_after_tax = net_profit - estimated_tax
+
 # --- Header ---
 st.title("📊 Lønnsomhetsdashboard")
 st.caption(f"{len(active_df)} linjer fordelt på {num_orders} bestillinger" + (f" ({num_refunded} refundert ekskludert)" if num_refunded > 0 else ""))
@@ -199,8 +205,8 @@ col1.metric("Omsetning (inkl. MVA)", f"{total_revenue_incl_mva:,.0f} kr", help="
 col2.metric("MVA (25%)", f"{total_mva:,.0f} kr", help="Merverdiavgift som skal betales til staten. 25% av omsetningen ekskl. MVA.")
 col3.metric("Omsetning (eksl. MVA)", f"{total_revenue:,.0f} kr", help="Omsetning etter at MVA er trukket fra. Dette er det du faktisk sitter igjen med før kostnader.")
 col4.metric("Varekostnad", f"{total_cogs:,.0f} kr", help="Innkjøpskostnad for varene (COGS). Hentet fra Google Sheets-arket 'Produktpriser'.")
-col5.metric("Netto resultat", f"{net_profit:,.0f} kr", help="Endelig resultat etter alle kostnader: varekostnad, transaksjonsgebyrer, ordrekostnader, og faste månedlige utgifter.")
-col6.metric("Netto margin", f"{net_margin:.1f}%", help="Netto resultat som prosent av omsetning (eksl. MVA). Viser hvor mye du tjener per krone omsatt etter alle kostnader.")
+col5.metric("Resultat før skatt", f"{net_profit:,.0f} kr", help="Resultat etter alle kostnader, men før selskapsskatt (22%).")
+col6.metric("Resultat etter skatt", f"{profit_after_tax:,.0f} kr", help="Resultat etter 22% selskapsskatt. Oppstartskostnader (150 000 kr) er trukket fra skattbart overskudd.")
 
 # --- Tabs ---
 tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_qr, tab_om = st.tabs([
@@ -273,7 +279,11 @@ with tab_okonomi:
             {"Post": "Transaksjonsgebyrer", "Beløp (NOK)": -total_txn_fees},
             {"Post": f"Ordrekostnader ({num_orders} stk)", "Beløp (NOK)": -total_per_order_fixed},
             {"Post": f"Faste kostnader ({months_covered:.1f} mnd)", "Beløp (NOK)": -total_fixed_overhead},
-            {"Post": "Netto resultat", "Beløp (NOK)": net_profit},
+            {"Post": "Resultat før skatt", "Beløp (NOK)": net_profit},
+            {"Post": "Oppstartskostnader (fradrag)", "Beløp (NOK)": -min(STARTUP_COSTS, net_profit) if net_profit > 0 else 0},
+            {"Post": "Skattbart overskudd", "Beløp (NOK)": taxable_income},
+            {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -estimated_tax},
+            {"Post": "Resultat etter skatt", "Beløp (NOK)": profit_after_tax},
         ]
         st.dataframe(
             pd.DataFrame(summary_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
@@ -335,10 +345,16 @@ with tab_okonomi:
         ytd_revenue = year_orders["revenue_excl_mva"].sum()
         ytd_net = net_profit  # Already calculated above
 
-        prog_col1, prog_col2, prog_col3 = st.columns(3)
+        # Projected tax
+        projected_taxable = max(0, projected_net_profit - STARTUP_COSTS)
+        projected_tax = projected_taxable * 0.22
+        projected_after_tax = projected_net_profit - projected_tax
+
+        prog_col1, prog_col2, prog_col3, prog_col4 = st.columns(4)
         prog_col1.metric("Projisert omsetning (år, eksl. MVA)", f"{projected_revenue:,.0f} kr")
-        prog_col2.metric("Projisert netto resultat (år)", f"{projected_net_profit:,.0f} kr")
-        prog_col3.metric("Projisert netto margin", f"{projected_margin:.1f}%")
+        prog_col2.metric("Projisert resultat før skatt", f"{projected_net_profit:,.0f} kr")
+        prog_col3.metric("Projisert resultat etter skatt", f"{projected_after_tax:,.0f} kr")
+        prog_col4.metric("Projisert netto margin", f"{projected_margin:.1f}%")
 
         st.markdown(f"**Basert på:** {days_with_data} dager med data ({first_order_date.strftime('%d.%m')} – {last_order_date.strftime('%d.%m.%Y')})")
         st.markdown(f"**Daglig snitt:** {daily_orders:.1f} bestillinger / {daily_revenue:,.0f} kr omsetning")
@@ -349,7 +365,10 @@ with tab_okonomi:
             {"Post": "Projisert transaksjonsgebyrer", "Beløp (NOK)": -projected_txn_fees},
             {"Post": f"Projisert ordrekostnader ({projected_orders:.0f} stk)", "Beløp (NOK)": -projected_per_order_costs},
             {"Post": "Faste kostnader (12 mnd)", "Beløp (NOK)": -projected_fixed_overhead},
-            {"Post": "Projisert netto resultat", "Beløp (NOK)": projected_net_profit},
+            {"Post": "Resultat før skatt", "Beløp (NOK)": projected_net_profit},
+            {"Post": "Oppstartskostnader (fradrag)", "Beløp (NOK)": -min(STARTUP_COSTS, max(0, projected_net_profit))},
+            {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -projected_tax},
+            {"Post": "Resultat etter skatt", "Beløp (NOK)": projected_after_tax},
         ]
         st.dataframe(
             pd.DataFrame(prognose_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
