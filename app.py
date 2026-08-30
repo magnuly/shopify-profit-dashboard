@@ -376,7 +376,22 @@ with tab_okonomi:
         if unused_deduction > 0:
             st.info(f"💡 **{unused_deduction:,.0f} kr** i ubrukt fradrag kan fremføres til neste år.")
         if utstyr > 0:
-            st.caption(f"Utstyr restverdi neste år: {utstyr_restverdi:,.0f} kr (avskrives videre med 30%)")
+            year2_avskrivning = utstyr_restverdi * 0.30
+            year2_rest = utstyr_restverdi - year2_avskrivning
+            with st.expander(f"📋 Utstyr avskrivningsplan ({utstyr:,.0f} kr)"):
+                avskr_data = []
+                rest = utstyr
+                for year in range(1, 6):
+                    avskr = rest * 0.30
+                    avskr_data.append({
+                        "År": year,
+                        "Bokført verdi": f"{rest:,.0f} kr",
+                        "Avskrivning (30%)": f"{avskr:,.0f} kr",
+                        "Restverdi": f"{rest - avskr:,.0f} kr",
+                    })
+                    rest = rest - avskr
+                st.dataframe(pd.DataFrame(avskr_data), use_container_width=True, hide_index=True)
+                st.caption(f"💡 Neste år legger du inn **{utstyr_restverdi:,.0f} kr** i utstyrsfeltet (restverdien), pluss eventuelt nytt utstyr kjøpt i løpet av året.")
 
     # --- Projected year result ---
     st.divider()
