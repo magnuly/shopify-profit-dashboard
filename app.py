@@ -308,16 +308,12 @@ with tab_okonomi:
 
     with skatt_col1:
         st.markdown("**Kostnader og fradrag**")
-        st.caption("Legg inn beløp for ulike kostnadstyper. Disse brukes til å beregne skattefradrag.")
 
-        driftskostnader = st.number_input(
-            "Driftskostnader (NOK)",
-            min_value=0,
-            value=0,
-            step=1000,
-            help="Kostnader til markedsføring, web, kontor, reise, osv. Fullt fradragsberettiget i året de påløper.",
-            key="driftskostnader",
-        )
+        # Driftskostnader beregnes automatisk fra faste månedlige kostnader
+        driftskostnader = total_fixed_overhead
+        st.markdown(f"**Driftskostnader:** {driftskostnader:,.0f} kr")
+        st.caption(f"Basert på faste månedlige kostnader ({overhead['fixed_monthly_total']:,.0f} kr/mnd × {months_covered:.1f} mnd)")
+
         varelager_usolgt = st.number_input(
             "Usolgt varelager ved årets slutt (NOK)",
             min_value=0,
@@ -344,8 +340,10 @@ with tab_okonomi:
         )
 
         # Calculate deductions
+        # Note: driftskostnader are already deducted in net_profit (as fixed overhead)
+        # So we only add utstyr_avskrivning and fremført underskudd as ADDITIONAL deductions
         utstyr_avskrivning = utstyr * 0.30  # 30% saldoavskrivning gruppe A
-        total_fradrag = driftskostnader + utstyr_avskrivning + fremfort_underskudd
+        total_fradrag = utstyr_avskrivning + fremfort_underskudd
         # Note: varelager is NOT deductible, and COGS is already in the dashboard
 
         tax_rate = 0.22
@@ -360,11 +358,9 @@ with tab_okonomi:
     with skatt_col2:
         st.markdown("**Skatteberegning**")
         skatt_data = [
-            {"Post": "Resultat før skatt", "Beløp (NOK)": net_profit},
-            {"Post": "Driftskostnader (fradrag)", "Beløp (NOK)": -driftskostnader},
+            {"Post": "Resultat før skatt (etter driftskostnader)", "Beløp (NOK)": net_profit},
             {"Post": f"Avskrivning utstyr (30% av {utstyr:,.0f})", "Beløp (NOK)": -utstyr_avskrivning},
             {"Post": "Fremførbart underskudd", "Beløp (NOK)": -fremfort_underskudd},
-            {"Post": "Sum fradrag", "Beløp (NOK)": -total_fradrag},
             {"Post": "Skattbart overskudd", "Beløp (NOK)": taxable_income},
             {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -estimated_tax},
             {"Post": "Resultat etter skatt", "Beløp (NOK)": profit_after_tax},
