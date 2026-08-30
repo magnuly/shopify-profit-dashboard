@@ -1122,9 +1122,67 @@ with tab_qr:
             st.warning("Kunne ikke hente QR-statistikk fra Render. Tjenesten kan sove — prøv igjen om 30 sekunder.")
         else:
             st.metric("Totalt antall skanninger", qr_data["total_scans"])
-            st.markdown(f"**Sporings-URL:** [qr-nariz.onrender.com](https://qr-nariz.onrender.com/stats)")
+            st.metric("Unike enheter", qr_data.get("unique_devices", "—"))
+            st.metric("Gjentatte skanninger", qr_data.get("repeat_scanners", "—"))
 
     if qr_data is not None:
+        # --- Time-grouped stats ---
+        st.divider()
+        qr_period = st.radio("Vis skanninger per:", ["Dag", "Uke", "Måned"], horizontal=True)
+
+        period_map = {"Dag": "daily", "Uke": "weekly", "Måned": "monthly"}
+        label_map = {"Dag": "date", "Uke": "week", "Måned": "month"}
+        period_data = qr_data.get(period_map[qr_period], [])
+
+        if period_data:
+            period_df = pd.DataFrame(period_data)
+            period_label = label_map[qr_period]
+            period_df = period_df.rename(columns={
+                period_label: "Periode",
+                "total": "Skanninger",
+                "unique_devices": "Unike enheter",
+            })
+
+            fig_period = go.Figure()
+            fig_period.add_trace(go.Bar(
+                x=period_df["Periode"], y=period_df["Skanninger"],
+                name="Totalt", marker_color="#2563eb",
+            ))
+            fig_period.add_trace(go.Bar(
+                x=period_df["Periode"], y=period_df["Unike enheter"],
+                name="Unike enheter", marker_color="#10b981",
+            ))
+            fig_period.update_layout(
+                barmode="overlay", hovermode="x unified",
+                legend=dict(orientation="h", y=-0.15),
+            )
+            st.plotly_chart(fig_period, use_container_width=True)
+
+            st.dataframe(period_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Ingen data for valgt periode.")
+
+        # --- Device breakdown (repeat scanners) ---
+        st.divider()
+        st.subheader("Enheter", help="Unike enheter identifisert via IP-adresse og nettleser. Samme person på ulike nettverk telles som to enheter.")
+        devices = qr_data.get("devices", [])
+        if devices:
+            dev_df = pd.DataFrame(devices)
+            dev_df["first_seen"] = pd.to_datetime(dev_df["first_seen"])
+            dev_df["last_seen"] = pd.to_datetime(dev_df["last_seen"])
+            dev_df = dev_df.rename(columns={
+                "ip": "IP-adresse",
+                "user_agent": "Enhet",
+                "scan_count": "Antall skanninger",
+                "first_seen": "Første skanning",
+                "last_seen": "Siste skanning",
+            })
+            st.dataframe(dev_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Ingen enhetsdata tilgjengelig.")
+
+        # --- Recent scans ---
+        st.divider()
         recent = qr_data.get("recent", [])
         if recent:
             st.subheader("Siste skanninger")
@@ -1136,21 +1194,6 @@ with tab_qr:
                 "user_agent": "Enhet",
             })
             st.dataframe(qr_df, use_container_width=True, hide_index=True)
-
-            # Daily scan chart
-            qr_daily = qr_df.copy()
-            qr_daily["Dato"] = qr_daily["Tidspunkt"].dt.date
-            qr_daily_counts = qr_daily.groupby("Dato").size().reset_index(name="Skanninger")
-            if len(qr_daily_counts) > 1:
-                st.subheader("Skanninger per dag")
-                fig_qr = px.bar(
-                    qr_daily_counts,
-                    x="Dato",
-                    y="Skanninger",
-                    color_discrete_sequence=["#2563eb"],
-                )
-                fig_qr.update_layout(hovermode="x unified")
-                st.plotly_chart(fig_qr, use_container_width=True)
         else:
             st.info("Ingen skanninger registrert ennå.")
 
