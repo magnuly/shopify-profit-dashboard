@@ -307,26 +307,64 @@ with tab_okonomi:
     skatt_col1, skatt_col2 = st.columns(2)
 
     with skatt_col1:
-        st.markdown("**Juster skattefradrag**")
-        startup_costs = st.number_input(
-            "Oppstartskostnader / fremførbart underskudd (NOK)",
+        st.markdown("**Kostnader og fradrag**")
+        st.caption("Legg inn beløp for ulike kostnadstyper. Disse brukes til å beregne skattefradrag.")
+
+        driftskostnader = st.number_input(
+            "Driftskostnader (NOK)",
             min_value=0,
-            value=150_000,
+            value=0,
             step=1000,
-            help="Oppstartskostnader og fremførbart underskudd fra tidligere år. Trekkes fra skattbart overskudd. Oppdater dette årlig basert på regnskap.",
-            key="startup_costs",
+            help="Kostnader til markedsføring, web, kontor, reise, osv. Fullt fradragsberettiget i året de påløper.",
+            key="driftskostnader",
         )
+        varelager_usolgt = st.number_input(
+            "Usolgt varelager ved årets slutt (NOK)",
+            min_value=0,
+            value=0,
+            step=1000,
+            help="Verdi av varer som ikke er solgt ennå. Disse er IKKE fradragsberettiget — de er en eiendel på balansen. Varekostnad for solgte varer er allerede trukket fra i dashboardet (COGS).",
+            key="varelager",
+        )
+        utstyr = st.number_input(
+            "Utstyr og inventar (NOK)",
+            min_value=0,
+            value=0,
+            step=1000,
+            help="Innkjøp av utstyr, datamaskiner, inventar. Avskrives med 30% per år (saldoavskrivning gruppe A).",
+            key="utstyr",
+        )
+        fremfort_underskudd = st.number_input(
+            "Fremførbart underskudd fra tidligere år (NOK)",
+            min_value=0,
+            value=0,
+            step=1000,
+            help="Underskudd fra tidligere regnskapsår som kan trekkes fra fremtidig overskudd. Oppdater basert på fjorårets skattemelding.",
+            key="fremfort",
+        )
+
+        # Calculate deductions
+        utstyr_avskrivning = utstyr * 0.30  # 30% saldoavskrivning gruppe A
+        total_fradrag = driftskostnader + utstyr_avskrivning + fremfort_underskudd
+        # Note: varelager is NOT deductible, and COGS is already in the dashboard
+
         tax_rate = 0.22
-        taxable_income = max(0, net_profit - startup_costs)
+        taxable_income = max(0, net_profit - total_fradrag)
         estimated_tax = taxable_income * tax_rate
         profit_after_tax = net_profit - estimated_tax
 
-        # Calculate remaining carryforward
-        remaining_carryforward = max(0, startup_costs - max(0, net_profit))
+        # Remaining carryforward for next year
+        unused_deduction = max(0, total_fradrag - max(0, net_profit))
+        utstyr_restverdi = utstyr - utstyr_avskrivning  # Remaining book value for next year
 
+    with skatt_col2:
+        st.markdown("**Skatteberegning**")
         skatt_data = [
             {"Post": "Resultat før skatt", "Beløp (NOK)": net_profit},
-            {"Post": "Fradrag (oppstart/underskudd)", "Beløp (NOK)": -min(startup_costs, max(0, net_profit))},
+            {"Post": "Driftskostnader (fradrag)", "Beløp (NOK)": -driftskostnader},
+            {"Post": f"Avskrivning utstyr (30% av {utstyr:,.0f})", "Beløp (NOK)": -utstyr_avskrivning},
+            {"Post": "Fremførbart underskudd", "Beløp (NOK)": -fremfort_underskudd},
+            {"Post": "Sum fradrag", "Beløp (NOK)": -total_fradrag},
             {"Post": "Skattbart overskudd", "Beløp (NOK)": taxable_income},
             {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -estimated_tax},
             {"Post": "Resultat etter skatt", "Beløp (NOK)": profit_after_tax},
@@ -337,15 +375,16 @@ with tab_okonomi:
             hide_index=True,
         )
 
-    with skatt_col2:
-        st.markdown("**Skatteoversikt**")
-        st.metric("Resultat før skatt", f"{net_profit:,.0f} kr")
-        st.metric("Estimert selskapsskatt", f"{estimated_tax:,.0f} kr")
+        st.divider()
         st.metric("Resultat etter skatt", f"{profit_after_tax:,.0f} kr")
-        if remaining_carryforward > 0:
-            st.info(f"💡 Du har **{remaining_carryforward:,.0f} kr** i fremførbart underskudd som kan brukes mot fremtidig overskudd.")
-        else:
-            st.caption("Oppstartskostnader er fullt utnyttet mot årets overskudd.")
+        st.metric("Estimert selskapsskatt", f"{estimated_tax:,.0f} kr")
+
+        if unused_deduction > 0:
+            st.info(f"💡 **{unused_deduction:,.0f} kr** i ubrukt fradrag kan fremføres til neste år.")
+        if utstyr > 0:
+            st.caption(f"Utstyr restverdi neste år: {utstyr_restverdi:,.0f} kr (avskrives videre med 30%)")
+        if varelager_usolgt > 0:
+            st.caption(f"Usolgt varelager ({varelager_usolgt:,.0f} kr) er en eiendel — ikke fradrag. Blir COGS når varene selges.")
 
     # --- Projected year result ---
     st.divider()
@@ -385,7 +424,7 @@ with tab_okonomi:
         ytd_net = net_profit  # Already calculated above
 
         # Projected tax
-        projected_taxable = max(0, projected_net_profit - startup_costs)
+        projected_taxable = max(0, projected_net_profit - total_fradrag)
         projected_tax = projected_taxable * 0.22
         projected_after_tax = projected_net_profit - projected_tax
 
@@ -405,7 +444,7 @@ with tab_okonomi:
             {"Post": f"Projisert ordrekostnader ({projected_orders:.0f} stk)", "Beløp (NOK)": -projected_per_order_costs},
             {"Post": "Faste kostnader (12 mnd)", "Beløp (NOK)": -projected_fixed_overhead},
             {"Post": "Resultat før skatt", "Beløp (NOK)": projected_net_profit},
-            {"Post": "Oppstartskostnader (fradrag)", "Beløp (NOK)": -min(startup_costs, max(0, projected_net_profit))},
+            {"Post": "Fradrag (drift+avskrivning+fremført)", "Beløp (NOK)": -min(total_fradrag, max(0, projected_net_profit))},
             {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -projected_tax},
             {"Post": "Resultat etter skatt", "Beløp (NOK)": projected_after_tax},
         ]
