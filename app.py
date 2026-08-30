@@ -1099,26 +1099,32 @@ with tab_bestillinger:
 with tab_qr:
     st.subheader("QR-kode skanninger", help="Statistikk fra QR-koden som peker til nariz.no via en sporingstjeneste på Render.")
 
-    QR_STATS_URL = "https://qr-nariz.onrender.com/stats/json"
+    import os as _os
+    _qr_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "qr_nariz.png")
+    qr_img_col, qr_stats_col = st.columns([1, 2])
+    with qr_img_col:
+        st.image(_qr_path, caption="Skann for å gå til nariz.no", width=250)
+    with qr_stats_col:
+        QR_STATS_URL = "https://qr-nariz.onrender.com/stats/json"
 
-    @st.cache_data(ttl=300, show_spinner=False)
-    def load_qr_stats():
-        try:
-            resp = requests.get(QR_STATS_URL, timeout=15)
-            resp.raise_for_status()
-            return resp.json()
-        except Exception:
-            return None
+        @st.cache_data(ttl=300, show_spinner=False)
+        def load_qr_stats():
+            try:
+                resp = requests.get(QR_STATS_URL, timeout=15)
+                resp.raise_for_status()
+                return resp.json()
+            except Exception:
+                return None
 
-    qr_data = load_qr_stats()
+        qr_data = load_qr_stats()
 
-    if qr_data is None:
-        st.warning("Kunne ikke hente QR-statistikk fra Render. Tjenesten kan sove — prøv igjen om 30 sekunder.")
-    else:
-        qr_col1, qr_col2 = st.columns(2)
-        qr_col1.metric("Totalt antall skanninger", qr_data["total_scans"])
-        qr_col2.markdown(f"**Sporings-URL:** [qr-nariz.onrender.com](https://qr-nariz.onrender.com/stats)")
+        if qr_data is None:
+            st.warning("Kunne ikke hente QR-statistikk fra Render. Tjenesten kan sove — prøv igjen om 30 sekunder.")
+        else:
+            st.metric("Totalt antall skanninger", qr_data["total_scans"])
+            st.markdown(f"**Sporings-URL:** [qr-nariz.onrender.com](https://qr-nariz.onrender.com/stats)")
 
+    if qr_data is not None:
         recent = qr_data.get("recent", [])
         if recent:
             st.subheader("Siste skanninger")
