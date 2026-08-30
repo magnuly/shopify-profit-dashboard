@@ -309,10 +309,29 @@ with tab_okonomi:
     with skatt_col1:
         st.markdown("**Kostnader og fradrag**")
 
-        # Driftskostnader beregnes automatisk fra faste månedlige kostnader
-        driftskostnader = total_fixed_overhead
-        st.markdown(f"**Driftskostnader:** {driftskostnader:,.0f} kr")
-        st.caption(f"Basert på faste månedlige kostnader ({overhead['fixed_monthly_total']:,.0f} kr/mnd × {months_covered:.1f} mnd)")
+        # Driftskostnader beregnes automatisk
+        driftskostnader_faste = total_fixed_overhead
+        driftskostnader_ordre = total_per_order_fixed + total_txn_fees
+        driftskostnader_total = driftskostnader_faste + driftskostnader_ordre
+
+        st.markdown(f"**Driftskostnader:** {driftskostnader_total:,.0f} kr")
+        with st.expander("Se fordeling av driftskostnader"):
+            drift_data = [
+                {"Kategori": "Faste månedlige kostnader", "Beløp (NOK)": driftskostnader_faste},
+            ]
+            for name, amount in overhead["fixed_monthly"].items():
+                drift_data.append({"Kategori": f"  ↳ {name}", "Beløp (NOK)": amount * months_covered})
+            drift_data.append({"Kategori": "Ordrekostnader", "Beløp (NOK)": total_per_order_fixed})
+            for name, amount in per_order["fixed_per_order"].items():
+                drift_data.append({"Kategori": f"  ↳ {name} (×{num_orders})", "Beløp (NOK)": amount * num_orders})
+            drift_data.append({"Kategori": "Transaksjonsgebyrer", "Beløp (NOK)": total_txn_fees})
+            drift_data.append({"Kategori": "**Sum driftskostnader**", "Beløp (NOK)": driftskostnader_total})
+            st.dataframe(
+                pd.DataFrame(drift_data).style.format({"Beløp (NOK)": "{:,.0f}"}),
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption("Alle driftskostnader er allerede trukket fra i 'Resultat før skatt' og er fullt fradragsberettiget.")
 
         verditap_varelager = st.number_input(
             "Verditap på usolgt varelager (NOK)",
@@ -395,13 +414,11 @@ with tab_okonomi:
 
     # --- Projected year result ---
     st.divider()
-    st.subheader("Prognose for regnskapsåret", help="Projisert årsresultat basert på historisk daglig gjennomsnitt, ekstrapolert til hele regnskapsåret (1. jan – 31. des).")
+    st.subheader("Prognose for regnskapsåret", help="Projisert årsresultat basert på daglig gjennomsnitt fra oppstart til 31. desember.")
 
     from datetime import date as date_type
     today = date_type.today()
-    year_start = date_type(today.year, 1, 1)
     year_end = date_type(today.year, 12, 31)
-    days_in_year = (year_end - year_start).days + 1
 
     # Days with data in this calendar year
     year_orders = active_df[active_df["order_date"].dt.year == today.year]
@@ -409,26 +426,26 @@ with tab_okonomi:
         first_order_date = year_orders["order_date"].min().date()
         last_order_date = year_orders["order_date"].max().date()
         days_with_data = (last_order_date - first_order_date).days + 1
-        days_remaining = (year_end - today).days
+
+        # Total days from first order to end of year
+        days_total_period = (year_end - first_order_date).days + 1
+        # Months from first order to end of year
+        months_total_period = days_total_period / 30
 
         # Daily averages from actual data
         daily_revenue = year_orders["revenue_excl_mva"].sum() / days_with_data
         daily_cogs = year_orders["total_cost"].sum() / days_with_data
         daily_orders = year_orders["order_number"].nunique() / days_with_data
 
-        # Project to full year
-        projected_revenue = daily_revenue * days_in_year
-        projected_cogs = daily_cogs * days_in_year
-        projected_orders = daily_orders * days_in_year
+        # Project from first order date to Dec 31
+        projected_revenue = daily_revenue * days_total_period
+        projected_cogs = daily_cogs * days_total_period
+        projected_orders = daily_orders * days_total_period
         projected_txn_fees = projected_revenue * (total_txn_fees / total_revenue) if total_revenue > 0 else 0
         projected_per_order_costs = fixed_per_order_total * projected_orders
-        projected_fixed_overhead = overhead["fixed_monthly_total"] * 12
+        projected_fixed_overhead = overhead["fixed_monthly_total"] * months_total_period
         projected_net_profit = projected_revenue - projected_cogs - projected_txn_fees - projected_per_order_costs - projected_fixed_overhead
         projected_margin = (projected_net_profit / projected_revenue * 100) if projected_revenue > 0 else 0
-
-        # Current actual YTD
-        ytd_revenue = year_orders["revenue_excl_mva"].sum()
-        ytd_net = net_profit  # Already calculated above
 
         # Projected tax
         projected_taxable = max(0, projected_net_profit - total_fradrag)
@@ -436,11 +453,12 @@ with tab_okonomi:
         projected_after_tax = projected_net_profit - projected_tax
 
         prog_col1, prog_col2, prog_col3, prog_col4 = st.columns(4)
-        prog_col1.metric("Projisert omsetning (år, eksl. MVA)", f"{projected_revenue:,.0f} kr")
+        prog_col1.metric("Projisert omsetning (eksl. MVA)", f"{projected_revenue:,.0f} kr")
         prog_col2.metric("Projisert resultat før skatt", f"{projected_net_profit:,.0f} kr")
         prog_col3.metric("Projisert resultat etter skatt", f"{projected_after_tax:,.0f} kr")
         prog_col4.metric("Projisert netto margin", f"{projected_margin:.1f}%")
 
+        st.markdown(f"**Periode:** {first_order_date.strftime('%d.%m')} – 31.12.{today.year} ({days_total_period} dager)")
         st.markdown(f"**Basert på:** {days_with_data} dager med data ({first_order_date.strftime('%d.%m')} – {last_order_date.strftime('%d.%m.%Y')})")
         st.markdown(f"**Daglig snitt:** {daily_orders:.1f} bestillinger / {daily_revenue:,.0f} kr omsetning")
 
@@ -449,9 +467,9 @@ with tab_okonomi:
             {"Post": "Projisert varekostnad", "Beløp (NOK)": -projected_cogs},
             {"Post": "Projisert transaksjonsgebyrer", "Beløp (NOK)": -projected_txn_fees},
             {"Post": f"Projisert ordrekostnader ({projected_orders:.0f} stk)", "Beløp (NOK)": -projected_per_order_costs},
-            {"Post": "Faste kostnader (12 mnd)", "Beløp (NOK)": -projected_fixed_overhead},
+            {"Post": f"Faste kostnader ({months_total_period:.1f} mnd)", "Beløp (NOK)": -projected_fixed_overhead},
             {"Post": "Resultat før skatt", "Beløp (NOK)": projected_net_profit},
-            {"Post": "Fradrag (drift+avskrivning+fremført)", "Beløp (NOK)": -min(total_fradrag, max(0, projected_net_profit))},
+            {"Post": "Fradrag (avskrivning+fremført)", "Beløp (NOK)": -min(total_fradrag, max(0, projected_net_profit))},
             {"Post": "Selskapsskatt (22%)", "Beløp (NOK)": -projected_tax},
             {"Post": "Resultat etter skatt", "Beløp (NOK)": projected_after_tax},
         ]
