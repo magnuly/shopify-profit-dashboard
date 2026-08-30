@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import requests
 from shopify_client import get_access_token, fetch_all_orders, fetch_transaction_fees, extract_line_items
 from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
 from vipps_client import get_vipps_access_token, get_vipps_ledger_id, fetch_vipps_fees
@@ -65,6 +66,8 @@ st.sidebar.markdown(f"[🛒 Shopify Admin](https://admin.shopify.com/store/{SHOP
 st.sidebar.markdown("[🌐 nariz.no](https://nariz.no)")
 st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID})")
 st.sidebar.markdown("[💳 Vipps Bedrift](https://portal.vipps.no)")
+st.sidebar.markdown("[📎 QR-kode statistikk](https://qr-nariz.onrender.com/stats)")
+st.sidebar.markdown("[🖥️ Render Dashboard](https://dashboard.render.com)")
 
 
 # --- Data loading (cached) ---
@@ -200,7 +203,7 @@ col5.metric("Netto resultat", f"{net_profit:,.0f} kr", help="Endelig resultat et
 col6.metric("Netto margin", f"{net_margin:.1f}%", help="Netto resultat som prosent av omsetning (eksl. MVA). Viser hvor mye du tjener per krone omsatt etter alle kostnader.")
 
 # --- Tabs ---
-tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_om = st.tabs([
+tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_qr, tab_om = st.tabs([
     "💰 Økonomi",
     "📈 Trender",
     "🛍️ Produkter",
@@ -210,6 +213,7 @@ tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, ta
     "📊 Break-even",
     "🏆 Rekorder",
     "📋 Bestillinger",
+    "📱 QR-kode",
     "ℹ️ Om",
 ])
 
@@ -1092,6 +1096,58 @@ with tab_bestillinger:
 
 
 
+with tab_qr:
+    st.subheader("QR-kode skanninger", help="Statistikk fra QR-koden som peker til nariz.no via en sporingstjeneste på Render.")
+
+    QR_STATS_URL = "https://qr-nariz.onrender.com/stats/json"
+
+    @st.cache_data(ttl=300, show_spinner=False)
+    def load_qr_stats():
+        try:
+            resp = requests.get(QR_STATS_URL, timeout=15)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception:
+            return None
+
+    qr_data = load_qr_stats()
+
+    if qr_data is None:
+        st.warning("Kunne ikke hente QR-statistikk fra Render. Tjenesten kan sove — prøv igjen om 30 sekunder.")
+    else:
+        qr_col1, qr_col2 = st.columns(2)
+        qr_col1.metric("Totalt antall skanninger", qr_data["total_scans"])
+        qr_col2.markdown(f"**Sporings-URL:** [qr-nariz.onrender.com](https://qr-nariz.onrender.com/stats)")
+
+        recent = qr_data.get("recent", [])
+        if recent:
+            st.subheader("Siste skanninger")
+            qr_df = pd.DataFrame(recent)
+            qr_df["timestamp"] = pd.to_datetime(qr_df["timestamp"])
+            qr_df = qr_df.rename(columns={
+                "timestamp": "Tidspunkt",
+                "ip": "IP-adresse",
+                "user_agent": "Enhet",
+            })
+            st.dataframe(qr_df, use_container_width=True, hide_index=True)
+
+            # Daily scan chart
+            qr_daily = qr_df.copy()
+            qr_daily["Dato"] = qr_daily["Tidspunkt"].dt.date
+            qr_daily_counts = qr_daily.groupby("Dato").size().reset_index(name="Skanninger")
+            if len(qr_daily_counts) > 1:
+                st.subheader("Skanninger per dag")
+                fig_qr = px.bar(
+                    qr_daily_counts,
+                    x="Dato",
+                    y="Skanninger",
+                    color_discrete_sequence=["#2563eb"],
+                )
+                fig_qr.update_layout(hovermode="x unified")
+                st.plotly_chart(fig_qr, use_container_width=True)
+        else:
+            st.info("Ingen skanninger registrert ennå.")
+
 with tab_om:
     st.subheader("Hvordan fungerer dette dashboardet?", help="Teknisk forklaring av dataflyt og kilder.")
 
@@ -1192,6 +1248,7 @@ Tilleggs-APIer:
 | 📦 Frakt | Fraktinntekter vs. fraktkostnader |
 | 📊 Break-even | Antall bestillinger per måned for å dekke faste kostnader |
 | 📋 Bestillinger | Alle bestillinger med detaljer, linjeinformasjon |
+| 📱 QR-kode | Skanningsstatistikk fra QR-koden (via Render) |
 | ℹ️ Om | Denne siden — arkitektur og forklaring |
         """)
 
