@@ -6,6 +6,7 @@ import requests
 from shopify_client import get_access_token, fetch_all_orders, fetch_transaction_fees, extract_line_items
 from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
 from vipps_client import get_vipps_access_token, get_vipps_ledger_id, fetch_vipps_fees
+from uptimerobot_client import get_incidents, get_monitor
 
 st.set_page_config(page_title="Lønnsomhetsdashboard", page_icon="📊", layout="wide")
 
@@ -205,7 +206,7 @@ col5.metric("Resultat før skatt", f"{net_profit:,.0f} kr", help="Resultat etter
 col6.metric("Netto margin", f"{net_margin:.1f}%", help="Resultat før skatt som prosent av omsetning (eksl. MVA).")
 
 # --- Tabs ---
-tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_qr, tab_om = st.tabs([
+tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, tab_breakeven, tab_rekorder, tab_bestillinger, tab_qr, tab_oppetid, tab_om = st.tabs([
     "💰 Økonomi",
     "📈 Trender",
     "🛍️ Produkter",
@@ -216,6 +217,7 @@ tab_okonomi, tab_trender, tab_produkter, tab_kunder, tab_rabatter, tab_frakt, ta
     "🏆 Rekorder",
     "📋 Bestillinger",
     "📱 QR-kode",
+    "🟢 Oppetid",
     "ℹ️ Om",
 ])
 
@@ -302,12 +304,16 @@ with tab_okonomi:
 
     # --- Skatt ---
     st.divider()
-    st.subheader("Skatt", help="Beregning av selskapsskatt (22%) for AS. Fremførbart underskudd og oppstartskostnader kan justeres.")
+    st.subheader("Skatt", help="Beregning av selskapsskatt (22%) for AS. Juster fradrag for utstyr, verditap og fremførbart underskudd.")
 
     skatt_col1, skatt_col2 = st.columns(2)
 
+    from datetime import date as date_type
+    today = date_type.today()
+    current_year = today.year
+
     with skatt_col1:
-        st.markdown("**Kostnader og fradrag**")
+        st.markdown(f"**Kostnader og fradrag ({current_year})**")
 
         # Driftskostnader beregnes automatisk
         driftskostnader_faste = total_fixed_overhead
@@ -334,7 +340,7 @@ with tab_okonomi:
             st.caption("Alle driftskostnader er allerede trukket fra i 'Resultat før skatt' og er fullt fradragsberettiget.")
 
         verditap_varelager = st.number_input(
-            "Verditap på usolgt varelager (NOK)",
+            f"Verditap på usolgt varelager i {current_year} (NOK)",
             min_value=0,
             value=0,
             step=1000,
@@ -342,19 +348,19 @@ with tab_okonomi:
             key="verditap",
         )
         utstyr = st.number_input(
-            "Utstyr og inventar, eksl. MVA (NOK)",
+            f"Utstyr og inventar i {current_year}, eksl. MVA (NOK)",
             min_value=0,
             value=0,
             step=1000,
-            help="Innkjøpspris ekskl. MVA for utstyr, datamaskiner, inventar. MVA på utstyr refunderes via MVA-oppgjøret og er ikke en kostnad. Avskrives med 30% per år (saldoavskrivning gruppe A).",
+            help="Sum av: restverdi fra fjorårets avskrivning + nytt utstyr kjøpt i år (eksl. MVA). Avskrives med 30% per år (saldoavskrivning gruppe A).",
             key="utstyr",
         )
         fremfort_underskudd = st.number_input(
-            "Fremførbart underskudd fra tidligere år (NOK)",
+            f"Fremførbart underskudd inn i {current_year} (NOK)",
             min_value=0,
             value=0,
             step=1000,
-            help="Underskudd fra tidligere regnskapsår som kan trekkes fra fremtidig overskudd. Brukes først når bedriften har gått med tap et tidligere år. Oppdater basert på fjorårets skattemelding.",
+            help=f"Akkumulert underskudd fra tidligere regnskapsår som kan trekkes fra overskudd i {current_year}. Hentes fra fjorårets skattemelding. Sett til 0 hvis dette er første driftsår.",
             key="fremfort",
         )
 
@@ -1318,6 +1324,100 @@ with tab_qr:
             st.dataframe(qr_df, use_container_width=True, hide_index=True)
         else:
             st.info("Ingen skanninger registrert ennå.")
+
+with tab_oppetid:
+    st.subheader(
+        "Oppetid for nariz.no",
+        help="UptimeRobot sjekker nettstedet hvert femte minutt og sender e-post ved nedetid eller gjenoppretting.",
+    )
+
+    uptime_configured = "uptimerobot" in st.secrets and bool(st.secrets["uptimerobot"].get("api_key", ""))
+    if not uptime_configured:
+        st.info(
+            "Oppetidsovervåking er ikke koblet til ennå. Opprett monitor og e-postvarsler i UptimeRobot, "
+            "og legg deretter en skrivebeskyttet API-nøkkel i Streamlit Secrets. Se fanen «ℹ️ Om» for oppsettet."
+        )
+    else:
+        uptime_cfg = st.secrets["uptimerobot"]
+        uptime_api_key = uptime_cfg["api_key"]
+        uptime_monitor_url = uptime_cfg.get("monitor_url", "https://nariz.no")
+
+        @st.cache_data(ttl=300, show_spinner=False)
+        def load_uptime_data(api_key, monitor_url):
+            monitor = get_monitor(api_key, monitor_url)
+            if monitor is None:
+                return None, []
+            return monitor, get_incidents(api_key, monitor["id"])
+
+        try:
+            with st.spinner("Henter oppetidsstatus fra UptimeRobot …"):
+                uptime_monitor, uptime_incidents = load_uptime_data(uptime_api_key, uptime_monitor_url)
+
+            if uptime_monitor is None:
+                st.warning(f"Fant ingen UptimeRobot-monitor for {uptime_monitor_url}.")
+            else:
+                monitor_status = str(uptime_monitor.get("status", "UNKNOWN")).upper()
+                status_map = {
+                    "UP": ("🟢 Oppe", "Nettstedet svarer normalt."),
+                    "DOWN": ("🔴 Nede", "UptimeRobot rapporterer at nettstedet er nede."),
+                    "LOOKS_DOWN": ("🟠 Undersøkes", "UptimeRobot undersøker en mulig feil."),
+                    "PAUSED": ("⚪ Satt på pause", "Monitoren er satt på pause i UptimeRobot."),
+                }
+                status_title, status_description = status_map.get(monitor_status, ("⚪ Ukjent", "Status kunne ikke tolkes."))
+
+                status_col, interval_col, incident_col = st.columns(3)
+                status_col.metric("Status", status_title)
+                interval_seconds = uptime_monitor.get("interval")
+                interval_text = f"{int(interval_seconds) // 60} min" if isinstance(interval_seconds, (int, float)) else "Ukjent"
+                interval_col.metric("Kontrollintervall", interval_text)
+                incident_col.metric("Registrerte hendelser", len(uptime_incidents))
+                st.caption(status_description)
+
+                if uptime_incidents:
+                    incident_df = pd.DataFrame(uptime_incidents)
+                    incident_df["start"] = pd.to_datetime(
+                        incident_df.get("startedAt", incident_df.get("startTime")), errors="coerce", utc=True
+                    )
+                    incident_df["slutt"] = pd.to_datetime(
+                        incident_df.get("endedAt", incident_df.get("endTime")), errors="coerce", utc=True
+                    )
+                    incident_df["varighet_min"] = (
+                        (incident_df["slutt"].fillna(pd.Timestamp.now(tz="UTC")) - incident_df["start"])
+                        .dt.total_seconds()
+                        .div(60)
+                        .round(1)
+                    )
+                    incident_df["dato"] = incident_df["start"].dt.date
+
+                    st.subheader("Nedetidshistorikk", help="Hendelser registrert av UptimeRobot. Pågående hendelser vises med varighet frem til nå.")
+                    daily_downtime = incident_df.groupby("dato", dropna=True)["varighet_min"].sum().reset_index()
+                    if not daily_downtime.empty:
+                        fig_uptime = px.bar(
+                            daily_downtime,
+                            x="dato",
+                            y="varighet_min",
+                            labels={"dato": "Dato", "varighet_min": "Nedetid (minutter)"},
+                            color_discrete_sequence=["#e74c3c"],
+                        )
+                        st.plotly_chart(fig_uptime, use_container_width=True)
+
+                    available_columns = [column for column in ["start", "slutt", "varighet_min", "type", "reason"] if column in incident_df.columns]
+                    st.dataframe(
+                        incident_df[available_columns].rename(columns={
+                            "start": "Start (UTC)",
+                            "slutt": "Slutt (UTC)",
+                            "varighet_min": "Varighet (min)",
+                            "type": "Type",
+                            "reason": "Årsak",
+                        }),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    st.success("✅ Ingen nedetidshendelser registrert av UptimeRobot ennå.")
+        except requests.RequestException as error:
+            st.error(f"Kunne ikke hente oppetidsdata fra UptimeRobot: {error}")
+
 
 with tab_om:
     st.subheader("Hvordan fungerer dette dashboardet?", help="Teknisk forklaring av dataflyt og kilder.")
