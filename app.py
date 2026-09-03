@@ -605,6 +605,13 @@ with tab_trender:
         labels={"order_date": "Dato", "bestillinger": "Bestillinger"},
         color_discrete_sequence=["#3498db"],
     )
+    fig_daily.add_hline(
+        y=avg_orders_per_day,
+        line_dash="dash",
+        line_color="#e74c3c",
+        annotation_text=f"Gjennomsnitt: {avg_orders_per_day:.1f}",
+        annotation_position="top left",
+    )
     fig_daily.update_layout(hovermode="x unified")
     st.plotly_chart(fig_daily, use_container_width=True)
 
