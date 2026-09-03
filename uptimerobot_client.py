@@ -31,7 +31,9 @@ def get_incidents(api_key: str, monitor_id: str | int) -> list[dict]:
     cursor: str | None = None
 
     while True:
-        params = {"monitorId": monitor_id, "limit": 100}
+        # UptimeRobot v3 uses snake_case parameters. The incidents endpoint
+        # does not support a limit parameter.
+        params = {"monitor_id": monitor_id}
         if cursor:
             params["cursor"] = cursor
 
