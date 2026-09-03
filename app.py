@@ -1329,7 +1329,7 @@ with tab_qr:
 with tab_oppetid:
     st.subheader(
         "Oppetid for nariz.no",
-        help="UptimeRobot sjekker nettstedet hvert femte minutt og sender e-post ved nedetid eller gjenoppretting.",
+        help="UptimeRobot sjekker nettstedet hvert femte minutt fra USA. Det oppdager derfor om nettstedet er utilgjengelig fra dette målepunktet og sender e-post ved nedetid eller gjenoppretting.",
     )
 
     uptime_configured = "uptimerobot" in st.secrets and bool(st.secrets["uptimerobot"].get("api_key", ""))
@@ -1373,6 +1373,7 @@ with tab_oppetid:
                 interval_col.metric("Kontrollintervall", interval_text)
                 incident_col.metric("Registrerte hendelser", len(uptime_incidents))
                 st.caption(status_description)
+                st.caption("📍 Oppetiden måles fra USA via UptimeRobot. Tilgjengelighet fra Norge kan avvike ved regionale nettverks- eller DNS-feil.")
 
                 if uptime_incidents:
                     incident_df = pd.DataFrame(uptime_incidents)
@@ -1494,7 +1495,7 @@ QR-kode sporing:
 - **Vipps Report API** — Faktiske transaksjonsgebyrer for Vipps-betalinger. Hentes fra ledger fees endpoint per dag.
 - **Google Sheets** — Tre faner med kostnadsdata som du vedlikeholder manuelt.
 - **QR Redirect Tracker (Render)** — Skanningsstatistikk fra QR-koden. Hentes fra `qr-nariz.onrender.com/stats/json`. Sporer antall skanninger, unike enheter (via IP + user agent fingerprint), og gjentatte besøk. Data caches i 5 minutter.
-- **UptimeRobot** — Overvåker `https://nariz.no`, `https://nariz.no/cart` og `https://nariz.no/search` hvert femte minutt. Sender e-post ved nedetid og gjenoppretting. Oppetid-fanen bruker en skrivebeskyttet API-nøkkel for status og hendelseshistorikk.
+- **UptimeRobot API v3** — Overvåker `https://nariz.no`, `https://nariz.no/cart` og `https://nariz.no/search` hvert femte minutt fra et målepunkt i USA. Sender e-post ved nedetid og gjenoppretting. Dashboardet bruker en skrivebeskyttet API-nøkkel til å hente monitorstatus og hendelseshistorikk.
 
 **Beregningsflyt:**
 
@@ -1526,6 +1527,13 @@ QR-kode sporing:
 - Nye bestillinger fra Shopify vises automatisk.
 - Vipps-gebyrer oppdateres daglig (fees publiseres med 1-2 dagers forsinkelse).
 - QR-skanningsdata caches i 5 minutter og hentes fra Render-tjenesten.
+- Oppetidsdata caches i 5 minutter og hentes direkte fra UptimeRobot API v3.
+
+**Oppetidsovervåking:**
+- **🟢 Oppetid-fanen** viser status, kontrollintervall, registrerte hendelser, nedetidsgraf og hendelsestabell for UptimeRobot-monitoren som er angitt i Streamlit Secrets.
+- UptimeRobot kontrollerer fra USA. Resultatet viser derfor om nettstedet er tilgjengelig fra dette målepunktet; en regional feil fra Norge kan avvike.
+- E-postvarslene styres i UptimeRobot og fungerer også når Streamlit-dashboardet er lukket eller utilgjengelig.
+- De tre monitorene overvåkes og varsles hver for seg i UptimeRobot. Den nåværende Oppetid-fanen viser én monitor om gangen, konfigurert med `monitor_url` i Streamlit Secrets.
 
 **QR-kode sporing:**
 - QR-koden peker til `qr-nariz.onrender.com`, som logger skanningen og videresender til `nariz.no`.
@@ -1547,6 +1555,7 @@ QR-kode sporing:
 | 📊 Break-even | Antall bestillinger per måned for å dekke faste kostnader |
 | 📋 Bestillinger | Alle bestillinger med detaljer, linjeinformasjon |
 | 📱 QR-kode | Skanningsstatistikk fra QR-koden (via Render) |
+| 🟢 Oppetid | UptimeRobot-status og nedetidshistorikk for valgt nettstedmonitor |
 | ℹ️ Om | Denne siden — arkitektur og forklaring |
         """)
 
