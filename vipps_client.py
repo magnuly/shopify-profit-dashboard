@@ -1,4 +1,5 @@
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
 
 
@@ -40,7 +41,10 @@ def fetch_vipps_fees(
     if end_date is None:
         end_date = date.today()
     if start_date is None:
-        start_date = end_date - timedelta(days=90)
+        # The dashboard uses this as a current actual fee rate. Thirty days is
+        # representative while avoiding unnecessary historical API traffic on
+        # every manual refresh.
+        start_date = end_date - timedelta(days=30)
 
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -48,34 +52,48 @@ def fetch_vipps_fees(
         "Merchant-Serial-Number": msn,
     }
 
-    all_fees = []
-    all_captures = []
+    dates = []
     current = start_date
-
     while current <= end_date:
-        date_str = current.strftime("%Y-%m-%d")
+        dates.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
 
-        # Fees
-        resp_fees = requests.get(
+    def fetch_day(date_str: str) -> tuple[list[dict], list[dict]]:
+        """Fetch one day's fees and captures. API amounts are in øre."""
+        fees_response = requests.get(
             f"https://api.vipps.no/report/v2/ledgers/{ledger_id}/fees/dates/{date_str}",
             headers=headers,
+            timeout=20,
         )
-        if resp_fees.status_code == 200:
-            for item in resp_fees.json().get("items", []):
-                if item.get("entryType") == "capture-fee":
-                    all_fees.append(item)
-
-        # Funds (captures) for total amount
-        resp_funds = requests.get(
+        funds_response = requests.get(
             f"https://api.vipps.no/report/v2/ledgers/{ledger_id}/funds/dates/{date_str}",
             headers=headers,
+            timeout=20,
         )
-        if resp_funds.status_code == 200:
-            for item in resp_funds.json().get("items", []):
-                if item.get("entryType") == "capture":
-                    all_captures.append(item)
 
-        current += timedelta(days=1)
+        fees = []
+        captures = []
+        if fees_response.status_code == 200:
+            fees = [
+                item for item in fees_response.json().get("items", [])
+                if item.get("entryType") == "capture-fee"
+            ]
+        if funds_response.status_code == 200:
+            captures = [
+                item for item in funds_response.json().get("items", [])
+                if item.get("entryType") == "capture"
+            ]
+        return fees, captures
+
+    # The former sequential implementation made two requests for each of 90
+    # dates. Eight workers preserve a modest API load while cutting refresh
+    # latency substantially.
+    all_fees = []
+    all_captures = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for fees, captures in executor.map(fetch_day, dates):
+            all_fees.extend(fees)
+            all_captures.extend(captures)
 
     # Amounts are in øre (minor units), convert to NOK
     total_fees_nok = sum(abs(f["amount"]) for f in all_fees) / 100

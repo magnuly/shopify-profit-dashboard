@@ -142,3 +142,71 @@ def get_per_order_costs(
         "fixed_per_order": fixed_per_order,
         "fixed_per_order_total": sum(fixed_per_order.values()),
     }
+
+
+def get_dashboard_cost_data(service_account_info: dict, spreadsheet_id: str) -> tuple[pd.DataFrame, dict, dict]:
+    """Load all three dashboard worksheets using one Google authorization.
+
+    This avoids creating three service-account clients and opening the same
+    spreadsheet three times whenever the dashboard cache is refreshed.
+    """
+    creds = Credentials.from_service_account_info(service_account_info, scopes=SCOPES)
+    spreadsheet = gspread.authorize(creds).open_by_key(spreadsheet_id)
+
+    product_rows = spreadsheet.get_worksheet(0).get_all_records()
+    costs_df = pd.DataFrame(product_rows)
+    if "cost_price" not in costs_df.columns and len(costs_df.columns) >= 2:
+        costs_df.columns = ["product_key", "cost_price"] + list(costs_df.columns[2:])
+    else:
+        costs_df = costs_df.rename(columns={
+            "Produkt navn": "product_key",
+            "Innkjøpspris pr. produkt i NOK uten MVA": "cost_price",
+        })
+    costs_df["cost_price"] = pd.to_numeric(costs_df["cost_price"], errors="coerce")
+    costs_df["product_key"] = costs_df["product_key"].str.strip()
+    costs_df = costs_df[costs_df["product_key"].str.len() > 0]
+
+    def parse_kr(value: str) -> float:
+        cleaned = value.replace("kr", "").replace("\xa0", "").replace(" ", "").replace(",", ".").strip()
+        try:
+            return float(cleaned)
+        except (ValueError, TypeError):
+            return 0.0
+
+    fixed_costs = {}
+    for row in spreadsheet.get_worksheet(1).get_all_values()[1:]:
+        name = row[0].strip() if row else ""
+        amount = row[1].strip() if len(row) > 1 else ""
+        if name and name.lower() != "sum" and amount:
+            fixed_costs[name] = parse_kr(amount)
+    overhead = {
+        "fixed_monthly": fixed_costs,
+        "fixed_monthly_total": sum(fixed_costs.values()),
+    }
+
+    transaction_fees = {}
+    fixed_per_order = {}
+    for row in spreadsheet.get_worksheet(2).get_all_values()[1:]:
+        name = row[0].strip() if row else ""
+        value = row[1].strip() if len(row) > 1 else ""
+        if not name or not value:
+            continue
+        if "transaksjonsgebyr" in name.lower():
+            rate = 0.0
+            fixed = 0.0
+            if "%" in value:
+                try:
+                    rate = float(value.split("%")[0].replace(",", ".").strip()) / 100
+                except ValueError:
+                    pass
+            if "+" in value:
+                fixed = parse_kr(value.split("+", 1)[1])
+            transaction_fees["vipps" if "vipps" in name.lower() else "kort"] = {"rate": rate, "fixed": fixed}
+        else:
+            fixed_per_order[name] = parse_kr(value)
+    per_order = {
+        "transaction_fees": transaction_fees,
+        "fixed_per_order": fixed_per_order,
+        "fixed_per_order_total": sum(fixed_per_order.values()),
+    }
+    return costs_df, overhead, per_order

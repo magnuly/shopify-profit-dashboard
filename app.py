@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 from shopify_client import get_access_token, fetch_all_orders, fetch_transaction_fees, extract_line_items
-from sheets_client import get_cost_data, get_overhead_costs, get_per_order_costs
+from sheets_client import get_dashboard_cost_data
 from vipps_client import get_vipps_access_token, get_vipps_ledger_id, fetch_vipps_fees
 from uptimerobot_client import get_incidents, get_monitor
 
@@ -96,14 +96,10 @@ def load_data(_version="v15"):
     items_df["item_revenue"] = items_df["unit_price"] * items_df["quantity"] - items_df["total_discount"]
     items_df["revenue"] = items_df["item_revenue"] + items_df["shipping_revenue"]
 
-    # Cost data from Google Sheets
-    costs_df = get_cost_data(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
-
-    # Overhead costs
-    overhead = get_overhead_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
-
-    # Per-order costs
-    per_order = get_per_order_costs(SERVICE_ACCOUNT_INFO, SPREADSHEET_ID)
+    # All Google Sheets tabs are loaded through one authenticated connection.
+    costs_df, overhead, per_order = get_dashboard_cost_data(
+        SERVICE_ACCOUNT_INFO, SPREADSHEET_ID
+    )
 
     # MVA (VAT) adjustment: Shopify revenue includes 25% MVA, costs are excl. MVA
     items_df["revenue_excl_mva"] = items_df["revenue"] / 1.25
