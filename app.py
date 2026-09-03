@@ -583,6 +583,17 @@ with tab_trender:
         .reset_index()
         .sort_values("order_date")
     )
+    # Include every calendar day so the line visibly drops to zero on days
+    # without orders instead of connecting the surrounding non-zero days.
+    all_dates = pd.DataFrame({
+        "order_date": pd.date_range(
+            start=active_df["order_date"].min(),
+            end=active_df["order_date"].max(),
+            freq="D",
+        )
+    })
+    daily_orders = all_dates.merge(daily_orders, on="order_date", how="left")
+    daily_orders["bestillinger"] = daily_orders["bestillinger"].fillna(0).astype(int)
     # Average over ALL calendar days (including zero-order days)
     total_calendar_days = (active_df["order_date"].max() - active_df["order_date"].min()).days + 1
     avg_orders_per_day = num_orders / total_calendar_days if total_calendar_days > 0 else 0
