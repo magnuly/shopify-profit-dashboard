@@ -69,6 +69,7 @@ st.sidebar.markdown(f"[📊 Kostnadsark](https://docs.google.com/spreadsheets/d/
 st.sidebar.markdown("[💳 Vipps Bedrift](https://portal.vipps.no)")
 st.sidebar.markdown("[📎 QR-kode statistikk](https://qr-nariz.onrender.com/stats)")
 st.sidebar.markdown("[🖥️ Render Dashboard](https://dashboard.render.com)")
+st.sidebar.markdown("[🟢 UptimeRobot-monitorer](https://dashboard.uptimerobot.com/monitors)")
 
 
 # --- Data loading (cached) ---
@@ -1451,8 +1452,9 @@ with tab_om:
 │   3. Henter faktiske gebyrer fra Shopify Payments API           │
 │   4. Henter faktiske gebyrer fra Vipps Report API               │
 │   5. Henter QR-skanningsstatistikk fra Render                   │
-│   6. Kobler sammen på produktnavn                               │
-│   7. Beregner: Omsetning − MVA − Varekostnad − Gebyrer         │
+│   6. Henter oppetidsstatus og hendelser fra UptimeRobot         │
+│   7. Kobler sammen på produktnavn                               │
+│   8. Beregner: Omsetning − MVA − Varekostnad − Gebyrer         │
 │      − Ordrekostnader − Faste kostnader = Netto resultat        │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -1492,6 +1494,7 @@ QR-kode sporing:
 - **Vipps Report API** — Faktiske transaksjonsgebyrer for Vipps-betalinger. Hentes fra ledger fees endpoint per dag.
 - **Google Sheets** — Tre faner med kostnadsdata som du vedlikeholder manuelt.
 - **QR Redirect Tracker (Render)** — Skanningsstatistikk fra QR-koden. Hentes fra `qr-nariz.onrender.com/stats/json`. Sporer antall skanninger, unike enheter (via IP + user agent fingerprint), og gjentatte besøk. Data caches i 5 minutter.
+- **UptimeRobot** — Overvåker `https://nariz.no`, `https://nariz.no/cart` og `https://nariz.no/search` hvert femte minutt. Sender e-post ved nedetid og gjenoppretting. Oppetid-fanen bruker en skrivebeskyttet API-nøkkel for status og hendelseshistorikk.
 
 **Beregningsflyt:**
 
