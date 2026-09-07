@@ -103,6 +103,9 @@ def extract_line_items(orders: list[dict]) -> list[dict]:
         shipping_address = order.get("shipping_address") or {}
         billing_address = order.get("billing_address") or {}
         city = shipping_address.get("city") or billing_address.get("city") or "Ukjent"
+        # Shopify addresses can vary only by casing (for example OSLO vs Oslo).
+        # Normalize whitespace and casing so every spelling is grouped together.
+        city = " ".join(city.split()).title()
 
         # Order-level discount (percentage/fixed codes applied at checkout)
         order_total_discount = float(order.get("total_discounts", 0))
