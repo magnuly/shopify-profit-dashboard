@@ -74,7 +74,7 @@ st.sidebar.markdown("[🟢 UptimeRobot-monitorer](https://dashboard.uptimerobot.
 
 # --- Data loading (cached) ---
 @st.cache_data(ttl=3600, show_spinner=False)
-def load_data(_version="v16"):
+def load_data(_version="v17"):
     # Shopify orders
     token = get_access_token(CLIENT_ID, CLIENT_SECRET, SHOP)
     orders = fetch_all_orders(token, SHOP)
@@ -124,6 +124,14 @@ with st.spinner("Laster bestillinger og kostnadsdata..."):
 
 # --- Calculate totals (excluding refunded orders) ---
 active_df = merged_df[~merged_df["is_refunded"]]
+
+# Gavebestillinger: ordre med 0 kr i samlet omsetning (gis bort til ambassadorer, influensere osv.)
+_order_revenue_totals = active_df.groupby("order_number")["revenue"].sum()
+gift_order_numbers = _order_revenue_totals[_order_revenue_totals <= 0].index
+sales_df = active_df[~active_df["order_number"].isin(gift_order_numbers)]
+gift_df = active_df[active_df["order_number"].isin(gift_order_numbers)]
+num_gift_orders = len(gift_order_numbers)
+
 num_orders = active_df["order_number"].nunique()
 num_refunded = merged_df[merged_df["is_refunded"]]["order_number"].nunique()
 total_revenue_incl_mva = active_df["revenue"].sum()
@@ -516,7 +524,7 @@ with tab_trender:
     with chart_col2:
         st.subheader("Fortjeneste per produkt (Topp 15)", help="De 15 produktene med høyest total fortjeneste. Fortjeneste = Omsetning eksl. MVA − Innkjøpspris.")
         product_profit = (
-            active_df.groupby("product_title")
+            sales_df.groupby("product_title")
             .agg({"profit": "sum", "revenue_excl_mva": "sum", "quantity": "sum"})
             .sort_values("profit", ascending=False)
             .head(15)
@@ -550,6 +558,27 @@ with tab_trender:
         )
         .reset_index()
     )
+    sales_order_totals = order_totals[~order_totals["order_number"].isin(gift_order_numbers)]
+
+    if len(gift_df) > 0:
+        st.subheader("Gavebestillinger – kostnad per uke", help="Varekostnad for produkter gitt bort til ambassadører, influensere osv. (bestillinger med 0 kr i omsetning). Vises separat og er ikke inkludert i Fortjeneste per uke eller Fortjeneste per produkt.")
+        weekly_gifts = gift_df.copy()
+        weekly_gifts["week"] = weekly_gifts["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+        weekly_gifts = (
+            weekly_gifts.groupby("week")
+            .agg(varekostnad=("total_cost", "sum"), bestillinger=("order_number", "nunique"))
+            .reset_index()
+        )
+        fig_gifts = px.bar(
+            weekly_gifts,
+            x="week",
+            y="varekostnad",
+            labels={"week": "Uke", "varekostnad": "Varekostnad gitt bort (NOK)"},
+            color_discrete_sequence=["#9b59b6"],
+        )
+        st.plotly_chart(fig_gifts, use_container_width=True)
+        st.caption(f"Totalt {num_gift_orders} gavebestilling(er) med {gift_df['total_cost'].sum():,.0f} kr i varekostnad.")
+
     overall_aov = total_revenue / num_orders if num_orders > 0 else 0
     st.metric("Gjennomsnittlig ordreverdi", f"{overall_aov:,.0f} kr", help="Total omsetning eksl. MVA delt på antall bestillinger.")
     weekly_aov = order_totals.copy()
@@ -574,7 +603,7 @@ with tab_trender:
 
     st.subheader("Daglig ordretakt", help="Antall unike bestillinger per dag over tid, med gjennomsnittlig daglig ordretakt.")
     daily_orders = (
-        order_totals.groupby("order_date")
+        sales_order_totals.groupby("order_date")
         .agg(bestillinger=("order_number", "nunique"))
         .reset_index()
         .sort_values("order_date")
@@ -592,7 +621,7 @@ with tab_trender:
     daily_orders["bestillinger"] = daily_orders["bestillinger"].fillna(0).astype(int)
     # Average over ALL calendar days (including zero-order days)
     total_calendar_days = (active_df["order_date"].max() - active_df["order_date"].min()).days + 1
-    avg_orders_per_day = num_orders / total_calendar_days if total_calendar_days > 0 else 0
+    avg_orders_per_day = (num_orders - num_gift_orders) / total_calendar_days if total_calendar_days > 0 else 0
     st.metric("Gjennomsnittlige bestillinger per dag", f"{avg_orders_per_day:.1f}", help="Gjennomsnittlig antall bestillinger per kalenderdag (inkludert dager uten bestillinger).")
     fig_daily = px.line(
         daily_orders,
@@ -617,7 +646,7 @@ with tab_trender:
 with tab_produkter:
     st.subheader("Margin % per produkt", help="Fortjenestemargin per produkt. Margin = (Fortjeneste / Omsetning eksl. MVA) × 100. Høyere er bedre. Kun produkter med kjent innkjøpspris vises.")
     margin_df = (
-        active_df.dropna(subset=["cost_price"])
+        sales_df.dropna(subset=["cost_price"])
         .groupby("product_title")
         .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum", "quantity": "sum"})
         .reset_index()
@@ -640,7 +669,7 @@ with tab_produkter:
 
     st.subheader("Bestselgere", help="De 15 produktene med høyest solgt antall. Rangeringen er basert på volum, ikke fortjeneste.")
     best_sellers = (
-        active_df.groupby("product_title")
+        sales_df.groupby("product_title")
         .agg(antall_solgt=("quantity", "sum"), omsetning=("revenue_excl_mva", "sum"))
         .reset_index()
         .sort_values("antall_solgt", ascending=False)
@@ -670,7 +699,7 @@ with tab_produkter:
 
     st.subheader("Bidragsmargin", help="Produktbidrag før faste kostnader. Beregnes som omsetning eksl. MVA minus innkjøpspris ganger antall solgt, uten fordeling av overhead.")
     contribution_products = (
-        active_df.dropna(subset=["cost_price"])
+        sales_df.dropna(subset=["cost_price"])
         .assign(bidragsmargin=lambda df: df["revenue_excl_mva"] - df["cost_price"] * df["quantity"])
         .groupby("product_title")
         .agg(bidragsmargin=("bidragsmargin", "sum"), omsetning=("revenue_excl_mva", "sum"), antall=("quantity", "sum"))
@@ -982,13 +1011,16 @@ with tab_rabatter:
 with tab_frakt:
     st.subheader("Fraktlønnsomhet", help="Sammenligner fraktinntekter fra kunder mot estimert fraktkostnad per ordre fra kostnadsarket.")
     estimated_shipping_cost_per_order = per_order["fixed_per_order"].get("Ca fraktkostnad", 0)
-    total_estimated_shipping_cost = estimated_shipping_cost_per_order * num_orders
+    num_sales_orders_ship = num_orders - num_gift_orders
+    total_estimated_shipping_cost = estimated_shipping_cost_per_order * num_sales_orders_ship
+    gift_estimated_shipping_cost = estimated_shipping_cost_per_order * num_gift_orders
     shipping_profit = total_shipping_revenue - total_estimated_shipping_cost
-    ship_col1, ship_col2, ship_col3 = st.columns(3)
+    ship_col1, ship_col2, ship_col3, ship_col4 = st.columns(4)
     ship_col1.metric("Fraktinntekter", f"{total_shipping_revenue:,.0f} kr", help="Total frakt betalt av kunder.")
-    ship_col2.metric("Estimert fraktkostnad", f"{total_estimated_shipping_cost:,.0f} kr", help="Estimert fraktkostnad per ordre multiplisert med antall bestillinger.")
+    ship_col2.metric("Estimert fraktkostnad", f"{total_estimated_shipping_cost:,.0f} kr", help="Estimert fraktkostnad per ordre multiplisert med antall salgsbestillinger (ekskl. gaver).")
     ship_col3.metric("Fraktresultat", f"{shipping_profit:,.0f} kr", help="Fraktinntekter minus estimert fraktkostnad.")
-    weekly_shipping = order_totals.copy()
+    ship_col4.metric("Fraktkostnad gaver", f"{gift_estimated_shipping_cost:,.0f} kr", help=f"Estimert fraktkostnad for {num_gift_orders} gavebestilling(er) (0 kr i omsetning), vist separat.")
+    weekly_shipping = sales_order_totals.copy()
     weekly_shipping["week"] = weekly_shipping["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
     weekly_shipping = (
         weekly_shipping.groupby("week")
@@ -1006,6 +1038,20 @@ with tab_frakt:
         "fraktinntekter": "Fraktinntekter",
         "estimert_fraktkostnad": "Estimert fraktkostnad",
     })
+
+    weekly_gift_shipping = gift_df.copy()
+    weekly_gift_shipping["week"] = weekly_gift_shipping["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+    weekly_gift_shipping = (
+        weekly_gift_shipping.groupby("week")
+        .agg(bestillinger=("order_number", "nunique"))
+        .reset_index()
+    )
+    weekly_gift_shipping["NOK"] = weekly_gift_shipping["bestillinger"] * estimated_shipping_cost_per_order
+    weekly_gift_shipping["Type"] = "Gaver (estimert fraktkostnad)"
+    weekly_gift_shipping_chart = weekly_gift_shipping[["week", "Type", "NOK"]]
+
+    weekly_shipping_chart = pd.concat([weekly_shipping_chart, weekly_gift_shipping_chart], ignore_index=True)
+
     fig_ship = px.bar(
         weekly_shipping_chart,
         x="week",
@@ -1013,9 +1059,11 @@ with tab_frakt:
         color="Type",
         barmode="group",
         labels={"week": "Uke", "NOK": "NOK"},
-        color_discrete_map={"Fraktinntekter": "#2ecc71", "Estimert fraktkostnad": "#e74c3c"},
+        color_discrete_map={"Fraktinntekter": "#2ecc71", "Estimert fraktkostnad": "#e74c3c", "Gaver (estimert fraktkostnad)": "#9b59b6"},
     )
     st.plotly_chart(fig_ship, use_container_width=True)
+    if num_gift_orders > 0:
+        st.caption(f"Lilla stolpe viser estimert fraktkostnad for {num_gift_orders} gavebestilling(er) som ikke genererer fraktinntekt.")
 
 
 
