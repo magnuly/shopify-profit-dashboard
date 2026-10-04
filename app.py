@@ -502,22 +502,30 @@ with tab_trender:
     # Profit over time (weekly)
     with chart_col1:
         st.subheader("Fortjeneste per uke", help="Ukentlig oversikt over omsetning (eksl. MVA), varekostnad og fortjeneste. Fortjeneste = Omsetning eksl. MVA − Varekostnad.")
-        weekly = active_df.copy()
+        weekly = sales_df.copy()
         weekly["week"] = weekly["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
         weekly = (
             weekly.groupby("week")
             .agg({"revenue_excl_mva": "sum", "total_cost": "sum", "profit": "sum"})
             .reset_index()
         )
+        weekly_gift_cost = gift_df.copy()
+        weekly_gift_cost["week"] = weekly_gift_cost["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
+        weekly_gift_cost = (
+            weekly_gift_cost.groupby("week")
+            .agg(gavekostnad=("total_cost", "sum"))
+            .reset_index()
+        )
+        weekly = weekly.merge(weekly_gift_cost, on="week", how="outer").fillna(0).sort_values("week")
         fig = px.line(
             weekly,
             x="week",
-            y=["revenue_excl_mva", "total_cost", "profit"],
+            y=["revenue_excl_mva", "total_cost", "profit", "gavekostnad"],
             labels={"value": "NOK", "week": "Uke", "variable": ""},
-            color_discrete_map={"revenue_excl_mva": "#2ecc71", "total_cost": "#e74c3c", "profit": "#3498db"},
+            color_discrete_map={"revenue_excl_mva": "#2ecc71", "total_cost": "#e74c3c", "profit": "#3498db", "gavekostnad": "#9b59b6"},
         )
         fig.update_layout(hovermode="x unified", legend=dict(orientation="h", y=-0.2))
-        fig.for_each_trace(lambda t: t.update(name={"revenue_excl_mva": "Omsetning", "total_cost": "Varekostnad", "profit": "Fortjeneste"}[t.name]))
+        fig.for_each_trace(lambda t: t.update(name={"revenue_excl_mva": "Omsetning", "total_cost": "Varekostnad", "profit": "Fortjeneste", "gavekostnad": "Gavekostnad"}[t.name]))
         st.plotly_chart(fig, use_container_width=True)
 
     # Profit by product (top 15)
@@ -559,25 +567,6 @@ with tab_trender:
         .reset_index()
     )
     sales_order_totals = order_totals[~order_totals["order_number"].isin(gift_order_numbers)]
-
-    if len(gift_df) > 0:
-        st.subheader("Gavebestillinger – kostnad per uke", help="Varekostnad for produkter gitt bort til ambassadører, influensere osv. (bestillinger med 0 kr i omsetning). Vises separat og er ikke inkludert i Fortjeneste per uke eller Fortjeneste per produkt.")
-        weekly_gifts = gift_df.copy()
-        weekly_gifts["week"] = weekly_gifts["order_date"].dt.to_period("W").apply(lambda r: r.start_time)
-        weekly_gifts = (
-            weekly_gifts.groupby("week")
-            .agg(varekostnad=("total_cost", "sum"), bestillinger=("order_number", "nunique"))
-            .reset_index()
-        )
-        fig_gifts = px.bar(
-            weekly_gifts,
-            x="week",
-            y="varekostnad",
-            labels={"week": "Uke", "varekostnad": "Varekostnad gitt bort (NOK)"},
-            color_discrete_sequence=["#9b59b6"],
-        )
-        st.plotly_chart(fig_gifts, use_container_width=True)
-        st.caption(f"Totalt {num_gift_orders} gavebestilling(er) med {gift_df['total_cost'].sum():,.0f} kr i varekostnad.")
 
     overall_aov = total_revenue / num_orders if num_orders > 0 else 0
     st.metric("Gjennomsnittlig ordreverdi", f"{overall_aov:,.0f} kr", help="Total omsetning eksl. MVA delt på antall bestillinger.")
